@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Super Agent
 
 内网多用户的通用任务 Agent：Python FastAPI 后端 + Vue3 TypeScript 前端，仿 earendil-works/pi 的架构手写 Agent Loop。
@@ -58,3 +59,7 @@ docker compose up -d --build                # 数据持久化在 ../data
 - **不用 agent 框架**：Agent Loop 手写（spec §4.4）——LLM 流式响应 → 并行执行工具 → 结果回填 → 继续或结束
 - **四层分工**：ai（Provider 抽象）← agent（loop/工具协议/hooks）← app（编排/持久化/审批/记忆/扩展/MCP）← server（WS/REST）；import 方向强制
 - **审批与记忆是相对 pi 的两处有意增强**（多用户内网场景的爆炸半径控制与跨会话延续），见 docs/adr/
+=======
+# Super-agent
+Building a Super Agent that pushes the boundaries of intelligence, autonomy, and capability.
+>>>>>>> origin/main
