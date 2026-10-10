@@ -19,7 +19,24 @@ const newModel = ref({
   api_key: '',
   context_window: 128000,
 })
-const showBaseUrl = computed(() => newModel.value.provider === 'openai-compat')
+// api_key 留空的语义随 provider 而异：anthropic 回退服务端 ANTHROPIC_API_KEY，
+// openai-compat 则完全不发 Authorization 头（本地 Ollama/vLLM 常无需鉴权）。
+const apiKeyPlaceholder = computed(() =>
+  newModel.value.provider === 'anthropic'
+    ? 'API Key（留空则用服务端 ANTHROPIC_API_KEY 环境变量）'
+    : 'API Key（留空则不发送 Authorization，适用于本地端点）',
+)
+
+// 自定义模型行内编辑：editingId 为 null 时全部收起
+const editingId = ref<string | null>(null)
+const editDraft = ref<CustomModelSpec>({
+  id: '',
+  name: '',
+  provider: 'openai-compat',
+  base_url: '',
+  api_key: '',
+  context_window: 128000,
+})
 
 // MCP 面板（票 20）：添加表单 + 保存重连
 const newSrv = ref({ name: '', command: '', args: '' })
@@ -83,7 +100,29 @@ function addModel(): void {
   }
 }
 
+function startEdit(m: CustomModelSpec): void {
+  editingId.value = m.id
+  editDraft.value = { ...m } // 副本：取消时天然丢弃
+}
+
+function cancelEdit(): void {
+  editingId.value = null
+}
+
+function saveEdit(): void {
+  if (!settings.settings || !editingId.value) return
+  const next = editDraft.value
+  if (!next.base_url.trim()) return
+  settings.settings.custom_models = settings.settings.custom_models.map((m) =>
+    m.id === editingId.value
+      ? { ...next, base_url: next.base_url.trim(), context_window: next.context_window || 128000 }
+      : m,
+  )
+  editingId.value = null
+}
+
 function removeModel(id: string): void {
+  if (editingId.value === id) editingId.value = null
   if (isDefault(id) && models.value.length > 1) {
     const next = models.value.find((m) => m.id !== id)
     if (next && settings.settings) settings.settings.default_model = next.id
@@ -115,7 +154,7 @@ async function save(): Promise<void> {
           <div class="se-sec">
             <h3>模型</h3>
             <p class="desc">默认模型与 thinking 强度；自定义模型并入 GET /api/models，OpenAI 兼容端点（vLLM / Ollama / DeepSeek…）与自定义 base_url 均可接入。</p>
-            <div class="se-label">可用模型 — 点击行设为默认；自定义行可移除</div>
+            <div class="se-label">可用模型 — 点击行设为默认；自定义行可编辑或移除</div>
             <div class="se-rows">
               <button
                 v-for="m in builtinModels"
@@ -130,24 +169,44 @@ async function save(): Promise<void> {
                 <span class="sp"></span>
                 <span class="se-badge">Anthropic</span>
               </button>
-              <div
-                v-for="m in customRows"
-                :key="m.id"
-                class="se-row se-mrow"
-                :class="{ def: isDefault(m.id) }"
-                role="button"
-                tabindex="0"
-                @click="setDefault(m.id)"
-              >
-                <span class="pat">{{ m.id }}</span>
-                <span v-if="isDefault(m.id)" class="se-badge def">默认</span>
-                <span class="sp"></span>
-                <span class="se-badge" :title="`上下文 ${m.context_window ?? 128000} tokens`">
-                  {{ Math.round((m.context_window ?? 128000) / 1000) }}K ctx
-                </span>
-                <span class="se-badge" :title="m.base_url">{{ m.provider === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容' }}</span>
-                <button class="se-x" title="移除" @click.stop="removeModel(m.id)">✕</button>
-              </div>
+              <template v-for="m in customRows" :key="m.id">
+                <div
+                  v-if="editingId !== m.id"
+                  class="se-row se-mrow"
+                  :class="{ def: isDefault(m.id) }"
+                  role="button"
+                  tabindex="0"
+                  @click="setDefault(m.id)"
+                >
+                  <span class="pat">{{ m.id }}</span>
+                  <span v-if="isDefault(m.id)" class="se-badge def">默认</span>
+                  <span class="sp"></span>
+                  <span class="se-badge" :title="`上下文 ${m.context_window ?? 128000} tokens`">
+                    {{ Math.round((m.context_window ?? 128000) / 1000) }}K ctx
+                  </span>
+                  <span class="se-badge" :title="m.base_url">{{ m.provider === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容' }}</span>
+                  <button class="se-x sedit" title="编辑" @click.stop="startEdit(m)">✎</button>
+                  <button class="se-x" title="移除" @click.stop="removeModel(m.id)">✕</button>
+                </div>
+                <form v-else class="se-row se-edit" @submit.prevent="saveEdit">
+                  <span class="pat">{{ m.id }}</span>
+                  <select v-model="editDraft.provider">
+                    <option value="openai-compat">OpenAI 兼容</option>
+                    <option value="anthropic">Anthropic</option>
+                  </select>
+                  <input v-model="editDraft.base_url" placeholder="Base URL" />
+                  <input
+                    v-model="editDraft.api_key"
+                    type="password"
+                    autocomplete="new-password"
+                    spellcheck="false"
+                    :placeholder="apiKeyPlaceholder"
+                  />
+                  <input v-model.number="editDraft.context_window" type="number" min="1000" placeholder="上下文窗口" />
+                  <button class="btn" type="submit">保存</button>
+                  <button class="se-x" type="button" title="取消" @click="cancelEdit">✕</button>
+                </form>
+              </template>
             </div>
             <form class="se-add" @submit.prevent="addModel">
               <input v-model="newModel.id" placeholder="模型 ID，如 local-qwen" required />
@@ -156,11 +215,13 @@ async function save(): Promise<void> {
                 <option value="anthropic">Anthropic</option>
               </select>
               <button class="btn" type="submit">添加</button>
+              <input v-model="newModel.base_url" placeholder="Base URL，如 http://127.0.0.1:11434/v1" />
               <input
-                v-if="showBaseUrl"
-                v-model="newModel.base_url"
-                class="wide"
-                placeholder="Base URL，如 http://127.0.0.1:11434/v1"
+                v-model="newModel.api_key"
+                type="password"
+                autocomplete="new-password"
+                spellcheck="false"
+                :placeholder="apiKeyPlaceholder"
               />
               <input v-model.number="newModel.context_window" type="number" min="1000" placeholder="上下文窗口（tokens，如 128000）" />
             </form>
@@ -324,6 +385,12 @@ async function save(): Promise<void> {
 .se-mrow.def{background:var(--accent-soft)}
 .se-x{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--ink3);font-size:13px}
 .se-x:hover{background:var(--error-soft);color:var(--error)}
+/* 自定义模型行内编辑 */
+.se-edit{flex-wrap:wrap}
+.se-edit input,.se-edit select{border:1px solid var(--line);border-radius:10px;background:var(--surface2);padding:8px 12px;font-size:13px;outline:none;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.se-edit input:focus,.se-edit select:focus{border-color:var(--accent)}
+.se-edit input{flex:1;min-width:150px}
+.se-x.sedit:hover{background:var(--surface2);color:var(--accent)}
 .se-add{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .se-add input{flex:1;min-width:140px;border:1px solid var(--line);border-radius:10px;background:var(--surface2);padding:8px 12px;font-size:13px;outline:none;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
 .se-add input:focus{border-color:var(--accent)}

@@ -254,3 +254,121 @@ describe('MCP 管理面板（票 20）', () => {
     expect(s.mcpState?.servers[0]?.name).toBe('fs') // 运行态随响应刷新
   })
 })
+
+describe('自定义模型：API Key 与行内编辑', () => {
+  type Row = {
+    id: string
+    name: string
+    provider: string
+    base_url: string
+    api_key: string
+    context_window?: number
+  }
+  const CUSTOM: Row = {
+    id: 'local-qwen',
+    name: '',
+    provider: 'openai-compat',
+    base_url: 'http://127.0.0.1:11434/v1',
+    api_key: 'sk-old',
+    context_window: 8000,
+  }
+  // store 会就地改 settings.value——每个用例新建 fixture，防止跨用例污染
+  const viewSettings = (custom_models: Row[] = []) => ({
+    ...SETTINGS,
+    approval_enabled: false, // 关掉审批区，避免工具行抢占 .se-row.se-mrow 选择器
+    bash_timeout: 60,
+    custom_models,
+  })
+  const stubView = (vs: ReturnType<typeof viewSettings>) =>
+    stubFetch((url) => {
+      const u = String(url)
+      if (u === '/api/models') return { models: [] }
+      if (u === '/api/mcp/tools') return { tools: [] }
+      if (u === '/api/mcp') return { configured: false, config: { servers: {} }, servers: [], tools: [] }
+      return vs
+    })
+
+  it('添加表单：api_key 可填，且 anthropic 类型下 base_url 不再被隐藏', async () => {
+    const { mount, flushPromises } = await import('@vue/test-utils')
+    const { default: SettingsView } = await import('@/views/SettingsView.vue')
+    stubView(viewSettings())
+    useAuthStore().token = 'tok'
+    const s = useSettingsStore()
+    await s.load()
+    const wrapper = mount(SettingsView, { global: { stubs: { RouterLink: true } } })
+    await flushPromises()
+
+    const form = wrapper.find('form.se-add')
+    await form.find('input[placeholder*="模型 ID"]').setValue('my-claude')
+    await form.find('select').setValue('anthropic')
+
+    // 回归：选 anthropic 时 base_url 输入框仍须存在（修复前它被 v-if 隐藏 → addModel 静默失败）
+    const baseUrl = form.find('input[placeholder*="Base URL"]')
+    expect(baseUrl.exists()).toBe(true)
+    await baseUrl.setValue('https://api.anthropic.com')
+
+    await form.find('input[type="password"]').setValue('sk-test')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(s.settings?.custom_models).toHaveLength(1)
+    expect(s.settings?.custom_models[0]).toMatchObject({
+      id: 'my-claude',
+      provider: 'anthropic',
+      base_url: 'https://api.anthropic.com',
+      api_key: 'sk-test',
+    })
+  })
+
+  it('行内编辑：保存入库、取消丢弃，且 ✎ 不触发设为默认', async () => {
+    const { mount, flushPromises } = await import('@vue/test-utils')
+    const { default: SettingsView } = await import('@/views/SettingsView.vue')
+    stubView(viewSettings([{ ...CUSTOM }]))
+    useAuthStore().token = 'tok'
+    const s = useSettingsStore()
+    await s.load()
+    const wrapper = mount(SettingsView, { global: { stubs: { RouterLink: true } } })
+    await flushPromises()
+
+    const before = s.settings?.default_model
+    await wrapper.find('.se-row .sedit').trigger('click')
+    expect(s.settings?.default_model).toBe(before) // @click.stop 生效，没顺手设为默认
+    expect(wrapper.find('form.se-edit').exists()).toBe(true)
+
+    // 取消 → 丢弃草稿
+    await wrapper.find('form.se-edit input[type="password"]').setValue('sk-dropped')
+    await wrapper.find('form.se-edit button[title="取消"]').trigger('click')
+    expect(s.settings?.custom_models[0]?.api_key).toBe('sk-old')
+    expect(wrapper.find('form.se-edit').exists()).toBe(false)
+
+    // 再次编辑 → 保存
+    await wrapper.find('.se-row .sedit').trigger('click')
+    await wrapper.find('form.se-edit input[type="password"]').setValue('sk-new')
+    await wrapper.find('form.se-edit input[placeholder="Base URL"]').setValue('http://127.0.0.1:9999/v1')
+    await wrapper.find('form.se-edit').trigger('submit')
+    await flushPromises()
+
+    expect(s.settings?.custom_models[0]).toMatchObject({
+      api_key: 'sk-new',
+      base_url: 'http://127.0.0.1:9999/v1',
+    })
+    expect(wrapper.find('form.se-edit').exists()).toBe(false)
+    expect(s.settings?.default_model).toBe(before)
+  })
+
+  it('点击自定义行仍设为默认（回归）', async () => {
+    const { mount, flushPromises } = await import('@vue/test-utils')
+    const { default: SettingsView } = await import('@/views/SettingsView.vue')
+    stubView(viewSettings([{ ...CUSTOM }]))
+    useAuthStore().token = 'tok'
+    const s = useSettingsStore()
+    await s.load()
+    const wrapper = mount(SettingsView, { global: { stubs: { RouterLink: true } } })
+    await flushPromises()
+
+    const row = wrapper.findAll('.se-row.se-mrow').find((w) => w.text().includes('local-qwen'))
+    expect(row).toBeTruthy()
+    await row!.trigger('click')
+    expect(s.settings?.default_model).toBe('local-qwen')
+  })
+})
