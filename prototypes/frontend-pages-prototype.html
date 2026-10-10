@@ -1,0 +1,799 @@
+<!--
+  UI 原型(throwaway,可随时删除)
+  问题:Super Agent 前端除 Chat 之外的页面该怎么展示?(用户输入"前端页面展示")
+  覆盖:Login / 工作台(Chat 壳 + Sessions 侧栏)/ Sessions 管理 / Settings。
+  Chat 界面本身已由 chat-ui-prototype.html(5 变体)覆盖,此处工作台只呈现导航壳与页面流。
+  切换:底部浮条 / ←→ 键 / ?page=login|workspace|sessions|settings。
+  全部交互为视觉演示,无持久化;Settings / Sessions 的编辑只存在于内存。
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Agent 页面原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#EDEFF1; --surface:#FFFFFF; --surface2:#F5F6F8;
+  --ink:#191D21; --ink2:#5A6470; --ink3:#8A94A0;
+  --line:#D9DDE2; --line2:#E7EAEE;
+  --accent:#0E7490; --accent-soft:#E1EFF3; --on-accent:#FFFFFF;
+  --error:#B3261E; --error-soft:#F9E5E3;
+  --warn:#96590A; --warn-soft:#F7EDD9;
+  --shadow:0 12px 32px rgba(16,20,26,.16);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --ground:#101318; --surface:#181D24; --surface2:#1F262F;
+  --ink:#E7EAEE; --ink2:#9AA4B0; --ink3:#69737F;
+  --line:#2A323D; --line2:#222933;
+  --accent:#45C4D8; --accent-soft:#14333C; --on-accent:#062A33;
+  --error:#F0716C; --error-soft:#3A2124;
+  --warn:#E8B14A; --warn-soft:#3A2F1B;
+  --shadow:0 12px 32px rgba(0,0,0,.5);
+}}
+:root[data-theme="dark"]{
+  --ground:#101318; --surface:#181D24; --surface2:#1F262F;
+  --ink:#E7EAEE; --ink2:#9AA4B0; --ink3:#69737F;
+  --line:#2A323D; --line2:#222933;
+  --accent:#45C4D8; --accent-soft:#14333C; --on-accent:#062A33;
+  --error:#F0716C; --error-soft:#3A2124;
+  --warn:#E8B14A; --warn-soft:#3A2F1B;
+  --shadow:0 12px 32px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ground); color:var(--ink); overflow:hidden;
+  font:14px/1.6 "IBM Plex Sans","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
+input,textarea{font:inherit;color:inherit}
+pre{margin:0}
+#app{height:100dvh}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;font-variant-numeric:tabular-nums}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:6px 14px;font-size:13px;font-weight:500;transition:border-color .15s,background .15s}
+.btn:hover{border-color:var(--ink3)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{border-color:var(--accent);filter:brightness(1.06)}
+.btn-ghost{background:transparent;border-color:transparent;color:var(--ink2)}
+.btn-ghost:hover{border-color:var(--line);color:var(--ink)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11px;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:2px 9px;background:var(--surface);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tmeta{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.pulse{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 5px var(--accent-soft)}}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+.switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:1000;display:flex;align-items:center;gap:2px;background:var(--ink);color:var(--ground);border-radius:999px;padding:5px 8px 5px 6px;box-shadow:var(--shadow)}
+.switcher .proto-tag{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:10.5px;letter-spacing:.08em;border:1px solid rgba(127,127,127,.45);border-radius:999px;padding:2px 8px;opacity:.85;margin-right:2px}
+.switcher button{color:var(--ground);width:26px;height:26px;border-radius:999px;display:grid;place-items:center;font-size:12px}
+.switcher button:hover{background:rgba(127,127,127,.3)}
+.switcher .vlabel{font-size:12.5px;font-weight:500;padding:0 8px;white-space:nowrap;min-width:110px;text-align:center}
+.toast{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--ground);padding:8px 16px;border-radius:999px;font-size:12.5px;z-index:1100;box-shadow:var(--shadow)}
+/* ---------- Login(整屏暗色场景,登录页固定深色,不随主题) ---------- */
+.lg{position:relative;height:100%;overflow:hidden;background:#0A0F15;color:#E8EEF2;--lg-a:#45C4D8}
+.lg canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.lg-veil{position:absolute;inset:0;pointer-events:none;background:
+  radial-gradient(1100px 620px at 30% 42%,rgba(69,196,216,.11),transparent 62%),
+  radial-gradient(900px 700px at 80% 80%,rgba(14,116,144,.14),transparent 65%),
+  linear-gradient(180deg,rgba(10,15,21,.2),transparent 30%,transparent 70%,rgba(10,15,21,.55))}
+.lg-scan{position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.02) 0 1px,transparent 1px 3px)}
+.lg-content{position:relative;z-index:2;height:100%;display:flex;align-items:center;justify-content:space-between;gap:48px;padding:56px 72px}
+.lg-brandbox{max-width:600px}
+.lg-eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11.5px;letter-spacing:.16em;color:var(--lg-a);border:1px solid rgba(69,196,216,.28);border-radius:999px;padding:5px 13px;background:rgba(69,196,216,.07)}
+.lg-eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--lg-a);animation:lgPulse 1.6s ease-in-out infinite}
+@keyframes lgPulse{50%{box-shadow:0 0 0 5px rgba(69,196,216,.25)}}
+.lg-word{margin:26px 0 0;font-size:clamp(46px,5.6vw,80px);font-weight:600;letter-spacing:-.025em;line-height:1.04;color:#F2F7FA}
+.lg-word em{font-style:normal;background:linear-gradient(92deg,#45C4D8 0%,#A8E8F2 55%,#F2F7FA 100%);background-size:180% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:lgSheen 7s ease-in-out infinite alternate}
+@keyframes lgSheen{from{background-position:0% 0}to{background-position:100% 0}}
+.lg-tag{margin-top:20px;font-size:15px;color:#9FB2BE;max-width:46ch;line-height:1.8}
+.lg-type{margin-top:16px;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:13.5px;color:#8ED8E6;min-height:20px}
+.lg-type .cur{display:inline-block;margin-left:1px;color:var(--lg-a);animation:lgBlink 1.05s steps(1) infinite}
+@keyframes lgBlink{50%{opacity:0}}
+.lg-hud{position:absolute;z-index:2;display:flex;align-items:center;gap:10px;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11px;letter-spacing:.06em;color:#5E7B89;font-variant-numeric:tabular-nums}
+.lg-hud .sep{color:#2C4350}
+.lg-hud.tl{top:22px;left:28px;color:#9FB2BE}
+.lg-hud.tl .mark{color:var(--lg-a)}
+.lg-hud.bl{left:28px;bottom:20px}
+.lg-hud.br{right:28px;bottom:20px}
+.lg-card{flex:none;width:min(400px,100%);border:1px solid rgba(120,200,215,.18);border-radius:18px;background:rgba(13,20,27,.68);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);padding:30px 28px;box-shadow:0 24px 70px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.05)}
+.lg-card h2{margin:0;font-size:20px;font-weight:600;color:#F2F7FA}
+.lg-card .sub{margin:6px 0 24px;font-size:13px;color:#8CA1AD}
+.lg-field{margin-bottom:15px}
+.lg-field label{display:block;font-size:12px;font-weight:500;color:#9FB2BE;margin-bottom:6px}
+.lg-field input{width:100%;border:1px solid rgba(120,200,215,.18);border-radius:10px;background:rgba(255,255,255,.045);padding:11px 13px;font-size:14px;color:#E8EEF2;outline:none;transition:border-color .15s,background .15s}
+.lg-field input::placeholder{color:#5E7280}
+.lg-field input:focus{border-color:var(--lg-a);background:rgba(69,196,216,.07)}
+.lg-submit{width:100%;padding:11px;margin-top:8px;font-size:14px;font-weight:600;border:none;border-radius:10px;background:linear-gradient(92deg,#0E7490,#45C4D8);color:#062A32}
+.lg-submit:hover{filter:brightness(1.1)}
+.lg-note{margin-top:18px;font-size:11.5px;color:#5E7280;line-height:1.8}
+/* ---------- 工作台 ---------- */
+.wk{height:100%;display:flex}
+.wk-side{flex:none;width:264px;background:var(--ground);border-right:1px solid var(--line2);display:flex;flex-direction:column;padding:16px 12px 12px}
+.wk-brand{font-weight:600;font-size:14px;letter-spacing:.02em;padding:2px 10px 12px}
+.wk-brand em{font-style:normal;color:var(--accent)}
+.wk-new{justify-content:center;margin-bottom:14px}
+.wk-sessions{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.wk-sess{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:8px;text-align:left}
+.wk-sess:hover{background:var(--surface2)}
+.wk-sess.active{background:var(--accent-soft)}
+.wk-sess .t{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wk-sess.active .t{color:var(--accent)}
+.wk-sess .s{font-size:11.5px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wk-all{display:flex;align-items:center;justify-content:space-between;padding:9px 10px;margin-top:6px;border-top:1px solid var(--line2);font-size:12.5px;color:var(--ink2);text-align:left}
+.wk-all:hover{color:var(--ink)}
+.wk-side-foot{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 2px;font-size:12px;color:var(--ink2)}
+.wk-main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--surface)}
+.wk-head{flex:none;display:flex;align-items:center;gap:12px;padding:12px 22px;border-bottom:1px solid var(--line2)}
+.wk-title{font-size:15px;font-weight:600}
+.wk-sub{font-size:11.5px;color:var(--ink3);margin-top:1px}
+.wk-sp{flex:1}
+.wk-runchip{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:3px 11px}
+.wk-runchip .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1.6s infinite}
+.wk-gear{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ink2);font-size:15px}
+.wk-gear:hover{background:var(--surface2);color:var(--ink)}
+.wk-scroll{flex:1;overflow-y:auto;min-height:0}
+.wk-col{max-width:720px;margin:0 auto;padding:26px 24px 24px;display:flex;flex-direction:column;gap:16px}
+.wk-user{align-self:flex-end;max-width:78%;background:var(--accent-soft);border-radius:14px 14px 4px 14px;padding:9px 14px;font-size:14px;line-height:1.65}
+.wk-think{border-left:2px solid var(--line);padding:2px 0 2px 12px;color:var(--ink2);font-size:12.5px;line-height:1.65}
+.wk-asst{font-size:14px;line-height:1.7}
+.wk-asst p{margin:0}
+.wk-card{border:1px solid var(--line2);background:var(--surface2);border-radius:10px;padding:9px 12px;display:flex;align-items:center;gap:9px}
+.wk-card-ic{width:22px;height:22px;border-radius:6px;background:var(--surface);border:1px solid var(--line2);display:grid;place-items:center;font-size:11px;color:var(--ink2);flex:none;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.wk-card-name{flex:none;font-size:12px;font-weight:500}
+.wk-card-args{flex:1;min-width:0;font-size:11.5px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.wk-card-status{flex:none;font-size:11px;color:var(--ink2);display:inline-flex;gap:5px;align-items:center}
+.wk-compose-wrap{flex:none;padding:0 22px 58px;background:var(--surface)}
+.wk-compose-box{max-width:720px;margin:0 auto}
+.wk-queue{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--ink2);background:var(--surface2);border:1px solid var(--line2);border-radius:999px;padding:4px 12px;margin-bottom:8px}
+/* --- composer(仿 claude.ai:大圆角卡 + 内嵌工具行) --- */
+.wk-compose{position:relative;border:1px solid var(--line);border-radius:20px;background:var(--surface2);padding:13px 13px 9px;transition:border-color .15s,box-shadow .15s}
+.wk-compose:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.wk-compose textarea{display:block;width:100%;border:none;background:transparent;outline:none;resize:none;font-size:14.5px;line-height:1.6;max-height:160px;padding:2px 4px 0;color:var(--ink);font-family:inherit}
+.wk-compose textarea::placeholder{color:var(--ink3)}
+.wk-tbar{display:flex;align-items:center;gap:5px;margin-top:9px}
+.wk-tbar .sp{flex:1}
+.wk-icbtn{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:var(--ink2);flex:none;transition:background .15s,color .15s}
+.wk-icbtn:hover{background:var(--surface);color:var(--ink)}
+.wk-icbtn svg{width:16px;height:16px}
+.wk-mw{position:relative;flex:none}
+.wk-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:12.5px;color:var(--ink2);white-space:nowrap;transition:border-color .15s,color .15s}
+.wk-pill:hover{border-color:var(--ink3);color:var(--ink)}
+.wk-pill .lbl{font-weight:500;color:var(--ink)}
+.wk-pill .cv{font-size:9px;color:var(--ink3);transform:translateY(1px)}
+.wk-pill .sic{color:var(--accent);font-size:12px}
+.wk-send{width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;flex:none;transition:opacity .15s,filter .15s}
+.wk-send svg{width:15px;height:15px}
+.wk-send:hover{filter:brightness(1.07)}
+.wk-send[disabled]{opacity:.32;cursor:default;filter:none}
+.wk-send.stop{background:var(--ink);color:var(--ground)}
+.wk-menu{position:absolute;bottom:calc(100% + 8px);left:0;min-width:264px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:5px;z-index:60}
+.wk-mi{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:8px 10px;border-radius:9px;font-size:13px;color:var(--ink)}
+.wk-mi:hover{background:var(--surface2)}
+.wk-mi .ck{width:14px;color:var(--accent);flex:none;font-size:12px}
+.wk-mi .nm{display:block;font-size:13px;line-height:1.35}
+.wk-mi .sub{display:block;font-size:10.5px;color:var(--ink3);font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;line-height:1.4}
+.wk-mi .sp{flex:1}
+.wk-mi .gl{width:16px;text-align:center;color:var(--ink2);flex:none;font-size:13px}
+.wk-mfoot{border-top:1px solid var(--line2);margin-top:4px;padding:7px 10px 5px;font-size:11px;color:var(--ink3);line-height:1.6}
+.wk-mfoot a{color:var(--accent);cursor:pointer;display:inline-block}
+.wk-note{font-size:12px;color:var(--ink3);font-style:italic}
+/* ---------- Sessions ---------- */
+.sn{height:100%;display:flex;flex-direction:column}
+.sn-top{flex:none;display:flex;align-items:center;gap:12px;padding:16px 26px;border-bottom:1px solid var(--line2);flex-wrap:wrap}
+.sn-title{font-size:16px;font-weight:600;margin-right:auto}
+.sn-search{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:7px 12px;min-width:220px}
+.sn-search:focus-within{border-color:var(--accent)}
+.sn-search input{border:none;background:transparent;outline:none;font-size:13px;width:170px}
+.sn-search input::placeholder{color:var(--ink3)}
+.sn-ic{color:var(--ink3);font-size:13px}
+.sn-fchips{display:flex;gap:6px}
+.sn-fchip{border:1px solid var(--line);border-radius:999px;padding:4px 13px;font-size:12px;color:var(--ink2);background:var(--surface)}
+.sn-fchip:hover{border-color:var(--ink3)}
+.sn-fchip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:500}
+.sn-body{flex:1;overflow-y:auto;min-height:0}
+.sn-wrap{max-width:980px;margin:0 auto;padding:20px 26px 80px}
+.sn-count{font-size:12px;color:var(--ink3);margin:0 0 10px}
+.sn-tablebox{border:1px solid var(--line2);border-radius:12px;background:var(--surface);overflow:hidden}
+.sn-scrollbox{overflow-x:auto}
+.sn-table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+.sn-table th{text-align:left;font-size:11px;letter-spacing:.08em;color:var(--ink3);font-weight:500;padding:10px 16px;border-bottom:1px solid var(--line2);background:var(--surface2);white-space:nowrap}
+.sn-table td{padding:12px 16px;border-bottom:1px solid var(--line2);vertical-align:middle}
+.sn-table tr:last-child td{border-bottom:none}
+.sn-table tbody tr{cursor:pointer}
+.sn-table tbody tr:hover td{background:var(--surface2)}
+.sn-table tr.run td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.sn-st{display:inline-flex;align-items:center;gap:7px;font-size:12px;white-space:nowrap}
+.sn-dot{width:7px;height:7px;border-radius:50%;flex:none}
+.sn-dot.run{background:var(--accent);animation:pulse 1.6s infinite}
+.sn-dot.idle{background:var(--ink3)}
+.sn-tt{font-weight:500;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sn-td-dim{color:var(--ink3);font-size:12px;white-space:nowrap}
+.sn-actions{display:flex;gap:4px;justify-content:flex-end}
+.sn-act{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--ink3);font-size:13px}
+.sn-act:hover{background:var(--surface2);color:var(--ink)}
+.sn-empty{padding:44px 0;text-align:center;color:var(--ink3);font-size:13px}
+/* ---------- Settings ---------- */
+.se{height:100%;display:flex;flex-direction:column}
+.se-top{flex:none;display:flex;align-items:center;gap:12px;padding:16px 26px;border-bottom:1px solid var(--line2)}
+.se-title{font-size:16px;font-weight:600;margin-right:auto}
+.se-body{flex:1;overflow-y:auto;min-height:0}
+.se-col{max-width:680px;margin:0 auto;padding:28px 26px 90px;display:flex;flex-direction:column;gap:30px}
+.se-sec h3{margin:0 0 2px;font-size:14.5px;font-weight:600}
+.se-sec .desc{margin:0 0 14px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.se-label{font-size:12px;font-weight:500;color:var(--ink2);margin:14px 0 7px}
+.se-label:first-of-type{margin-top:0}
+.se-seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px;background:var(--surface2);max-width:100%;overflow-x:auto}
+.se-seg button{padding:6px 14px;border-radius:8px;font-size:12.5px;color:var(--ink2);white-space:nowrap;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.se-seg button:hover{color:var(--ink)}
+.se-seg button.on{background:var(--surface);color:var(--accent);font-weight:500;box-shadow:0 1px 3px rgba(16,20,26,.12)}
+.se-togrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line2);border-radius:10px;background:var(--surface)}
+.se-togrow .tt{font-size:13.5px;font-weight:500}
+.se-togrow .dd{font-size:12px;color:var(--ink2);margin-top:1px}
+.se-togrow .sp{flex:1}
+.se-switch{position:relative;width:40px;height:22px;border-radius:999px;background:var(--line);transition:background .15s;flex:none}
+.se-switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--surface);box-shadow:0 1px 3px rgba(16,20,26,.3);transition:left .15s}
+.se-switch.on{background:var(--accent)}
+.se-switch.on::after{left:20px}
+.se-rows{border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:var(--surface)}
+.se-row{display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--line2)}
+.se-row:last-child{border-bottom:none}
+.se-row .pat{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:12.5px}
+.se-badge{font-size:10.5px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--ink3);white-space:nowrap}
+.se-badge.session{color:var(--accent);border-color:var(--accent)}
+.se-badge.def{color:var(--accent);border-color:var(--accent);font-weight:500}
+.se-mrow{cursor:pointer}
+.se-mrow:hover{background:var(--surface2)}
+.se-mrow.def{background:var(--accent-soft)}
+#se-newbase{flex-basis:100%}
+.se-row .sp{flex:1}
+.se-x{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--ink3);font-size:13px}
+.se-x:hover{background:var(--error-soft);color:var(--error)}
+.se-add{display:flex;gap:8px;margin-top:10px}
+.se-add input{flex:1;border:1px solid var(--line);border-radius:10px;background:var(--surface2);padding:8px 12px;font-size:13px;outline:none;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.se-add input:focus{border-color:var(--accent)}
+.se-add select{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:8px 10px;font-size:13px;color:var(--ink2);outline:none}
+.se-numrow{display:flex;gap:22px;flex-wrap:wrap}
+.se-numf label{display:block;font-size:12px;font-weight:500;color:var(--ink2);margin-bottom:6px}
+.se-numf input{width:110px;border:1px solid var(--line);border-radius:10px;background:var(--surface2);padding:8px 12px;font-size:13px;outline:none;font-variant-numeric:tabular-nums}
+.se-numf input:focus{border-color:var(--accent)}
+.se-savebar{display:flex;align-items:center;gap:12px}
+.se-savebar .hint{font-size:11.5px;color:var(--ink3)}
+@media (max-width:900px){.lg-brandbox{display:none}.lg-content{justify-content:center;padding:24px}.lg-hud.bl{display:none}.wk-side{width:212px}}
+@media (prefers-reduced-motion: reduce){.pulse,.wk-runchip .dot,.sn-dot.run{animation:none}}
+</style>
+<div id="app"></div>
+<script>
+"use strict";
+/* ---------- mock 数据 ---------- */
+const SESSIONS=[
+ {t:"查 readiness NaN",status:"running",time:"2 分钟前",msgs:9,tok:"14.2k"},
+ {t:"M4 compaction 设计",status:"idle",time:"昨天",msgs:23,tok:"86.5k"},
+ {t:"BioSync 数据探查",status:"idle",time:"10-03",msgs:41,tok:"210.9k"},
+ {t:"周报整理",status:"idle",time:"09-30",msgs:12,tok:"33.1k"},
+ {t:"M2 工具协议评审",status:"idle",time:"09-27",msgs:18,tok:"61.7k"},
+ {t:"docker-compose 调试",status:"idle",time:"09-25",msgs:7,tok:"19.4k"}
+];
+const WK_ENTRIES=[
+ {k:"user",t:"把 readiness 的回归测试跑一遍,然后总结失败原因。"},
+ {k:"think",t:"先列出 tests/ 下相关文件,跑 pytest,再按失败原因分组。",dur:"8s",tok:"203"},
+ {k:"asst",t:"好的,我先跑测试,再按失败原因分组总结。"},
+ {k:"tool",tool:"bash",args:"python -m pytest tests/ -q",status:"ok",meta:"exit 1 · 白名单放行"},
+ {k:"asst",t:"1 个失败:hrv 全 NaN 时 readiness 抛出浮点异常,其余通过。修复思路我发在上一条建议里。"}
+];
+const MODELS=[{id:"claude-opus-5",provider:"anthropic"},{id:"claude-sonnet-5",provider:"anthropic"}];
+const THINK=["low","medium","high","xhigh","max"];
+const SETTINGS={model:"claude-opus-5",thinking:"high",approvalOn:true,
+ patterns:[{p:"pytest*",scope:"global"},{p:"git status",scope:"global"},{p:"git diff*",scope:"session"}],
+ maxLoops:4,bashTimeout:120};
+/* ---------- 状态与装配 ---------- */
+const app=document.getElementById("app");
+let current="login",snFilter="all",snQuery="";
+const PAGES=[{key:"login",name:"Login"},{key:"workspace",name:"工作台"},{key:"sessions",name:"Sessions"},{key:"settings",name:"Settings"}];
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function goto(key){
+  current=key;
+  try{history.replaceState(null,"","?page="+key)}catch(_){}
+  render();
+}
+function switcherHtml(){
+  const i=PAGES.findIndex(p=>p.key===current);
+  return '<div class="switcher" role="toolbar" aria-label="页面切换">'+
+    '<span class="proto-tag">UI 原型</span>'+
+    '<button data-goto="'+PAGES[(i+PAGES.length-1)%PAGES.length].key+'" title="上一页 (←)">◀</button>'+
+    '<span class="vlabel">'+(i+1)+" · "+PAGES[i].name+"</span>"+
+    '<button data-goto="'+PAGES[(i+1)%PAGES.length].key+'" title="下一页 (→)">▶</button></div>';
+}
+function render(){
+  if(lgAnim.raf){cancelAnimationFrame(lgAnim.raf);lgAnim.raf=0}
+  while(lgAnim.timers.length)clearInterval(lgAnim.timers.pop());
+  if(typeof wkTimers!=="undefined")wkClearTimers();
+  const prev=app.querySelector("[data-scroll]");
+  const changed=!render.last||render.last!==current;
+  app.innerHTML=({login:viewLogin,workspace:viewWorkspace,sessions:viewSessions,settings:viewSettings}[current]||viewLogin)()+switcherHtml();
+  const sc=app.querySelector("[data-scroll]");
+  if(sc&&changed){ sc.scrollTop=current==="workspace"?sc.scrollHeight:0; }
+  render.last=current;
+  if(current==="login")lgStart();
+  if(current==="workspace")wkUpdateSend();
+}
+/* ---------- Login ---------- */
+function viewLogin(){
+  return '<div class="lg">'+
+    '<canvas id="lg-canvas"></canvas>'+
+    '<div class="lg-veil"></div><div class="lg-scan"></div>'+
+    '<div class="lg-hud tl"><span class="mark">◍ SUPER AGENT</span><span class="sep">/</span><span>内网部署 · 单机多用户</span></div>'+
+    '<div class="lg-hud bl"><span>http://10.22.x.x:8000</span><span class="sep">·</span><span>v0.1 · M0 骨架</span><span class="sep">·</span><span>会话 / 记忆 / 工作区按用户隔离</span></div>'+
+    '<div class="lg-hud br" id="lg-stats">NODES — · LINK — · EVT —</div>'+
+    '<div class="lg-content">'+
+      '<div class="lg-brandbox">'+
+        '<div class="lg-eyebrow"><span class="dot"></span>AGENT LOOP · ONLINE</div>'+
+        '<h1 class="lg-word">Super <em>Agent</em></h1>'+
+        '<div class="lg-tag">内网通用任务 Agent — 通过工具系统获得能力,编码只是其中之一。仿 pi 架构,FastAPI + Vue3,多用户同机使用。</div>'+
+        '<div class="lg-type">&gt; <span id="lg-typed"></span><span class="cur">▌</span></div>'+
+      "</div>"+
+      '<div class="lg-card">'+
+        '<h2>登录</h2><p class="sub">使用内网账号进入工作台</p>'+
+        '<div class="lg-field"><label>用户名</label><input placeholder="admin"></div>'+
+        '<div class="lg-field"><label>密码</label><input type="password" placeholder="••••••••"></div>'+
+        '<button class="btn lg-submit" data-login>登录</button>'+
+        '<div class="lg-note">原型演示:任意输入,点击登录直接进入工作台。<br>真实实现:POST /api/auth/login → token 存 localStorage,WS 连接以 query param 携带。</div>'+
+      "</div>"+
+    "</div></div>";
+}
+/* ---------- Login 背景:agent 网络脉冲动画(演示) ---------- */
+const lgAnim={raf:0,timers:[],onR:null,mx:undefined,my:undefined,lastSpawn:0,lastStat:0};
+addEventListener("mousemove",function(ev){lgAnim.mx=ev.clientX/innerWidth;lgAnim.my=ev.clientY/innerHeight});
+function lgStart(){
+  const cv=document.getElementById("lg-canvas");
+  if(!cv)return;
+  if(lgAnim.onR)removeEventListener("resize",lgAnim.onR);
+  const ctx=cv.getContext("2d");
+  const statsEl=document.getElementById("lg-stats");
+  const LG="69,196,216";
+  const dpr=Math.min(devicePixelRatio||1,2);
+  const rm=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let W=0,H=0,links=0;
+  const nodes=[],pulses=[];
+  function resize(){
+    if(!cv.isConnected)return;
+    W=cv.clientWidth;H=cv.clientHeight;
+    cv.width=W*dpr;cv.height=H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize();
+  lgAnim.onR=resize;
+  addEventListener("resize",lgAnim.onR);
+  const N=Math.max(40,Math.min(96,Math.round(innerWidth*innerHeight/15000)));
+  for(let i=0;i<N;i++)nodes.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.24,vy:(Math.random()-.5)*.24,r:Math.random()*1.5+.6});
+  const LINK=150;
+  function spawn(){
+    const i=(Math.random()*nodes.length)|0;
+    const j=(i+1+((Math.random()*(nodes.length-1))|0))%nodes.length;
+    const a=nodes[i],b=nodes[j],dx=a.x-b.x,dy=a.y-b.y;
+    if(dx*dx+dy*dy<LINK*LINK*2.4)pulses.push({a:i,b:j,t:0,s:.011+Math.random()*.013});
+  }
+  function paint(ts){
+    ctx.clearRect(0,0,W,H);
+    const ox=((lgAnim.mx||.5)-.5)*24,oy=((lgAnim.my||.5)-.5)*18;
+    links=0;
+    ctx.lineWidth=1;
+    for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){
+      const a=nodes[i],b=nodes[j],dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy;
+      if(d2<LINK*LINK){
+        links++;
+        ctx.strokeStyle="rgba("+LG+","+((1-Math.sqrt(d2)/LINK)*.15).toFixed(3)+")";
+        ctx.beginPath();ctx.moveTo(a.x+ox,a.y+oy);ctx.lineTo(b.x+ox,b.y+oy);ctx.stroke();
+      }
+    }
+    for(const p of pulses){
+      p.t+=rm?0:p.s;
+      const a=nodes[p.a],b=nodes[p.b];
+      const t0=Math.max(0,p.t-.2);
+      const x2=a.x+ox+(b.x-a.x)*p.t,y2=a.y+oy+(b.y-a.y)*p.t;
+      ctx.strokeStyle="rgba("+LG+","+(.5*(1-p.t*.55)).toFixed(3)+")";
+      ctx.lineWidth=1.4;
+      ctx.beginPath();ctx.moveTo(a.x+ox+(b.x-a.x)*t0,a.y+oy+(b.y-a.y)*t0);ctx.lineTo(x2,y2);ctx.stroke();
+      ctx.fillStyle="rgba(199,241,248,.95)";
+      ctx.beginPath();ctx.arc(x2,y2,2.2,0,7);ctx.fill();
+      ctx.lineWidth=1;
+    }
+    for(let k=pulses.length-1;k>=0;k--)if(pulses[k].t>=1)pulses.splice(k,1);
+    ctx.fillStyle="rgba("+LG+",.6)";
+    for(const n of nodes){
+      ctx.beginPath();ctx.arc(n.x+ox,n.y+oy,n.r,0,7);ctx.fill();
+      if(!rm){
+        n.x+=n.vx;n.y+=n.vy;
+        if(n.x<-8)n.x=W+8;else if(n.x>W+8)n.x=-8;
+        if(n.y<-8)n.y=H+8;else if(n.y>H+8)n.y=-8;
+      }
+    }
+    if(!rm){
+      if(ts-lgAnim.lastSpawn>260){lgAnim.lastSpawn=ts;if(pulses.length<8)spawn()}
+      if(ts-lgAnim.lastStat>600){
+        lgAnim.lastStat=ts;
+        if(statsEl)statsEl.textContent="NODES "+nodes.length+" · LINK "+links+" · EVT "+pulses.length;
+      }
+    }else if(statsEl)statsEl.textContent="NODES "+nodes.length+" · LINK "+links+" · EVT 0";
+  }
+  function frame(ts){
+    lgAnim.raf=requestAnimationFrame(frame);
+    paint(ts);
+  }
+  if(rm)paint(0);else lgAnim.raf=requestAnimationFrame(frame);
+  // 打字机任务行
+  const el=document.getElementById("lg-typed");
+  if(el){
+    const words=["排查 tests/readiness NaN 的原因","整理本周周报并生成要点","给登录页加自定义模型入口","压缩 3 个长会话的记忆"];
+    if(rm){el.textContent=words[0]}
+    else{
+      let wi=0,ci=0,del=false,hold=0;
+      const t=setInterval(function(){
+        const w=words[wi];
+        if(hold>0){hold--;return}
+        if(!del){
+          ci++;el.textContent=w.slice(0,ci);
+          if(ci===w.length){del=true;hold=16}
+        }else{
+          ci--;el.textContent=w.slice(0,ci);
+          if(ci===0){del=false;wi=(wi+1)%words.length;hold=5}
+        }
+      },52);
+      lgAnim.timers.push(t);
+    }
+  }
+}
+/* ---------- 工作台 ---------- */
+function wkEntry(e){
+  if(e.k==="user")return '<div class="wk-user">'+esc(e.t)+"</div>";
+  if(e.k==="think")return '<div class="wk-think">'+esc(e.t)+' <span class="tmeta">'+e.dur+" · "+e.tok+" tokens</span></div>";
+  if(e.k==="asst")return '<div class="wk-asst"><p>'+esc(e.t)+"</p></div>";
+  if(e.k==="tool")return '<div class="wk-card"><span class="wk-card-ic">$</span><span class="wk-card-name mono">'+e.tool+"</span>"+
+    '<span class="wk-card-args">'+esc(e.args)+'</span><span class="wk-card-status">✓ <span class="mono">'+esc(e.meta)+"</span></span></div>";
+  if(e.k==="note")return '<div class="wk-note">'+esc(e.t)+"</div>";
+  return "";
+}
+function viewWorkspace(){
+  const list=WK_ENTRIES.map(wkEntry).join("");
+  const taPh=wkRunning?"插话 (Steer) — 直接进入当前 Loop…":"给 Super Agent 一个任务…";
+  return '<div class="wk">'+
+    '<aside class="wk-side"><div class="wk-brand">Super<em> Agent</em></div>'+
+      '<button class="btn wk-new">+ 新会话</button>'+
+      '<div class="wk-sessions">'+SESSIONS.map((s,i)=>'<button class="wk-sess'+(i===0?" active":"")+'"><span class="t">'+esc(s.t)+'</span><span class="s">'+s.time+" · "+s.msgs+" 条</span></button>").join("")+"</div>"+
+      '<button class="wk-all" data-goto="sessions"><span>全部会话</span><span>→</span></button>'+
+      '<div class="wk-side-foot"><span>admin</span><span class="mono" data-wk-sidem>'+esc(SETTINGS.model)+'</span></div></aside>'+
+    '<main class="wk-main">'+
+      '<header class="wk-head"><div><div class="wk-title">'+esc(SESSIONS[0].t)+'</div><div class="wk-sub mono" data-wk-sub>'+esc(SETTINGS.model)+' · thinking: '+SETTINGS.thinking+' · ↑ 12.4k ↓ 1.8k</div></div>'+
+      '<span class="wk-sp"></span><span class="wk-runchip" data-wk-runchip'+(wkRunning?"":" hidden")+'><i class="dot"></i>运行中</span>'+
+      '<button class="btn btn-ghost" data-wk-abort'+(wkRunning?"":" hidden")+'>■ Abort</button><button class="wk-gear" data-goto="settings" title="Settings">⚙</button></header>'+
+      '<div class="wk-scroll" data-scroll><div class="wk-col">'+list+"</div></div>"+
+      '<div class="wk-compose-wrap"><div class="wk-compose-box">'+
+        '<div class="wk-queue" data-wk-queue'+(wkRunning&&WK_QUEUE.length?"":" hidden")+'>⏸ <span>Follow-up ×'+WK_QUEUE.length+' 已排队 — 运行结束后自动发送</span></div>'+
+        '<div class="wk-compose">'+
+          '<textarea data-wk-ta rows="1" placeholder="'+taPh+'"></textarea>'+
+          '<div class="wk-tbar">'+
+            '<span class="wk-mw"><button class="wk-icbtn" data-wk-menu="attach" title="添加附件">'+svgic("plus")+'</button>'+wkMenuAttach()+"</span>"+
+            '<span class="wk-mw"><button class="wk-pill" data-wk-menu="model" title="模型 — set_model"><span class="lbl" data-wk-mlbl>'+esc(pretty(SETTINGS.model))+'</span><span class="cv">▾</span></button>'+wkMenuModel()+"</span>"+
+            '<span class="wk-mw"><button class="wk-pill" data-wk-menu="think" title="Thinking level — set_thinking_level"><span class="sic">✦</span><span class="lbl">思考 · '+THINK_ZH[SETTINGS.thinking]+'</span><span class="cv">▾</span></button>'+wkMenuThink()+"</span>"+
+            '<span class="sp"></span>'+
+            '<button class="wk-icbtn" data-wk-mic title="语音输入">'+svgic("mic")+'</button>'+
+            '<button class="wk-send" data-wk-send title="发送 (Enter)">'+svgic("up")+"</button>"+
+          "</div>"+
+        "</div>"+
+      "</div></div></main></div>";
+}
+/* ---------- composer:claude.ai 式交互(演示,全在内存) ---------- */
+const SVG_P={
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ up:'<path d="M12 19V5M5 12l7-7 7 7"/>',
+ stop:'<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/>',
+ mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'};
+function svgic(n){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+SVG_P[n]+"</svg>"}
+const PRETTY={"claude-opus-5":"Claude Opus 5","claude-sonnet-5":"Claude Sonnet 5"};
+function pretty(id){return PRETTY[id]||id}
+const THINK_ZH={low:"低",medium:"中",high:"高",xhigh:"超高",max:"最大"};
+let wkRunning=true,wkTimers=[],WK_QUEUE=["把修复思路整理成 issue 草稿"];
+function wkq(sel){return app.querySelector(sel)}
+function wkMenuAttach(){
+  return '<div class="wk-menu" data-wk-menuel="attach" hidden>'+
+    '<button class="wk-mi" data-wk-att="file"><span class="gl">↥</span><span><span class="nm">上传文件</span><span class="sub">存入 workspace/uploads/</span></span></button>'+
+    '<button class="wk-mi" data-wk-att="img"><span class="gl">▦</span><span><span class="nm">粘贴图片</span><span class="sub">PNG / JPEG — 多模态在 v1 之后</span></span></button>'+
+    '<button class="wk-mi" data-wk-att="ref"><span class="gl">@</span><span><span class="nm">引用工作区文件</span><span class="sub">插入相对路径 @ 引用</span></span></button>'+
+    '<div class="wk-mfoot">v1 以文本 + 路径引用为主;二进制附件由工具按需读取。</div></div>';
+}
+function wkMenuModel(){
+  const items=MODELS.map(function(m,i){
+    const sel=SETTINGS.model===m.id;
+    return '<button class="wk-mi" data-wk-model="'+i+'"><span class="ck">'+(sel?"✓":"")+'</span><span><span class="nm">'+esc(pretty(m.id))+'</span><span class="sub">'+esc(m.id)+(m.provider==="custom"&&m.base?" · "+esc(m.base):"")+'</span></span><span class="sp"></span><span class="se-badge">'+(m.provider==="anthropic"?"Anthropic":"OpenAI 兼容")+"</span></button>";
+  }).join("");
+  return '<div class="wk-menu" data-wk-menuel="model" hidden>'+items+
+    '<div class="wk-mfoot">切换即刻生效(WS set_model)。<a data-goto="settings">管理模型 → Settings</a></div></div>';
+}
+function wkMenuThink(){
+  const items=THINK.map(function(v){
+    const sel=SETTINGS.thinking===v;
+    return '<button class="wk-mi" data-wk-think="'+v+'"><span class="ck">'+(sel?"✓":"")+'</span><span><span class="nm">思考 · '+THINK_ZH[v]+'</span><span class="sub">effort: '+v+"</span></span></button>";
+  }).join("");
+  return '<div class="wk-menu" data-wk-menuel="think" hidden>'+items+
+    '<div class="wk-mfoot">adaptive thinking — set_thinking_level 随时调整。</div></div>';
+}
+function wkAppend(html){
+  const col=wkq(".wk-col"),sc=wkq(".wk-scroll");
+  if(!col)return null;
+  const div=document.createElement("div");div.innerHTML=html;
+  const node=div.firstElementChild;col.appendChild(node);
+  if(sc)sc.scrollTop=sc.scrollHeight;
+  return node;
+}
+function wkUpdateSend(){
+  const ta=wkq("[data-wk-ta]"),btn=wkq("[data-wk-send]");
+  if(!ta||!btn)return;
+  if(wkRunning){btn.classList.add("stop");btn.innerHTML=svgic("stop");btn.disabled=false;btn.title="中断 (abort)";btn.dataset.wkStop="y"}
+  else{btn.classList.remove("stop");btn.innerHTML=svgic("up");btn.disabled=ta.value.trim()==="";btn.title="发送 (Enter)";delete btn.dataset.wkStop}
+}
+function wkClearTimers(){wkTimers.forEach(function(id){clearTimeout(id);clearInterval(id)});wkTimers=[]}
+function wkSetIdle(sendQueue){
+  wkRunning=false;wkClearTimers();
+  SESSIONS[0].status="idle";
+  const chip=wkq("[data-wk-runchip]"),ab=wkq("[data-wk-abort]"),ta=wkq("[data-wk-ta]"),qc=wkq("[data-wk-queue]");
+  if(chip)chip.hidden=true;
+  if(ab)ab.hidden=true;
+  if(ta)ta.placeholder="给 Super Agent 一个任务…";
+  if(qc&&!WK_QUEUE.length)qc.hidden=true;
+  wkUpdateSend();
+  if(sendQueue&&WK_QUEUE.length){
+    const t=WK_QUEUE.shift();
+    if(qc)qc.hidden=true;
+    wkTimers.push(setTimeout(function(){wkAppend(wkEntry({k:"user",t:t}));wkDemoReply()},600));
+  }
+}
+function wkAbort(){
+  wkClearTimers();
+  wkAppend(wkEntry({k:"note",t:"已中断 — stop_reason: aborted(流式与工具执行立即停止)"}));
+  wkSetIdle(false);
+}
+function wkSendText(){
+  const ta=wkq("[data-wk-ta]");if(!ta)return;
+  const txt=ta.value.trim();if(!txt)return;
+  ta.value="";ta.style.height="auto";wkUpdateSend();ta.focus();
+  wkAppend(wkEntry({k:"user",t:txt}));
+  if(wkRunning){
+    wkTimers.push(setTimeout(function(){
+      wkAppend(wkEntry({k:"asst",t:"收到插话 — 已并入当前步骤,失败分组的结论会一起覆盖这部分。"}));
+    },1400));
+    wkTimers.push(setTimeout(function(){wkSetIdle(true)},5600));
+  }else wkDemoReply();
+}
+function wkDemoReply(){
+  wkTimers.push(setTimeout(function(){
+    wkAppend(wkEntry({k:"think",t:"检索 hrv/readiness 相关实现与测试,核对 NaN 产生路径。",dur:"6s",tok:"187"}));
+  },700));
+  wkTimers.push(setTimeout(function(){
+    const full="readiness 抛 NaN 的根因:hrv 序列全为 NaN 时 np.mean 未做防护直接聚合。修复 diff 已写到 fix/readiness-nan 分支,建议补一条全 NaN 边界测试防回归。";
+    const node=wkAppend(wkEntry({k:"asst",t:""}));
+    if(!node)return;
+    const p=node.querySelector("p");let i=0;
+    const iv=setInterval(function(){
+      i=Math.min(full.length,i+2+((Math.random()*3)|0));
+      if(p)p.textContent=full.slice(0,i);
+      const sc=wkq(".wk-scroll");if(sc)sc.scrollTop=sc.scrollHeight;
+      if(i>=full.length)clearInterval(iv);
+    },26);
+    wkTimers.push(iv);
+  },2000));
+}
+function wkCloseMenus(){app.querySelectorAll("[data-wk-menuel]").forEach(function(m){m.hidden=true})}
+function wkToggleMenu(kind){
+  const m=wkq('[data-wk-menuel="'+kind+'"]');if(!m)return;
+  const open=m.hidden;wkCloseMenus();m.hidden=!open;
+}
+function wkSelectModel(i){
+  const m=MODELS[i];if(!m)return;
+  SETTINGS.model=m.id;
+  const lbl=wkq("[data-wk-mlbl]");if(lbl)lbl.textContent=pretty(m.id);
+  app.querySelectorAll("[data-wk-model]").forEach(function(el){
+    el.querySelector(".ck").textContent=+el.dataset.wkModel===i?"✓":"";
+  });
+  const sub=wkq("[data-wk-sub]");if(sub)sub.textContent=m.id+" · thinking: "+SETTINGS.thinking+" · ↑ 12.4k ↓ 1.8k";
+  const side=wkq("[data-wk-sidem]");if(side)side.textContent=m.id;
+  wkCloseMenus();
+  toast("模型已切换 — WS set_model,下条消息生效");
+}
+function wkSelectThink(v){
+  SETTINGS.thinking=v;
+  const pill=wkq('[data-wk-menu="think"]');if(pill){const l=pill.querySelector(".lbl");if(l)l.textContent="思考 · "+THINK_ZH[v]}
+  app.querySelectorAll("[data-wk-think]").forEach(function(el){
+    el.querySelector(".ck").textContent=el.dataset.wkThink===v?"✓":"";
+  });
+  const sub=wkq("[data-wk-sub]");if(sub)sub.textContent=SETTINGS.model+" · thinking: "+v+" · ↑ 12.4k ↓ 1.8k";
+  wkCloseMenus();
+}
+function wkAttach(kind){
+  const ta=wkq("[data-wk-ta]");wkCloseMenus();
+  if(!ta)return;
+  const ins={file:"[附件:report-q3.pdf] ",img:"[图片:paste-01.png] ",ref:"@src/app/agent/loop.py "}[kind]||"";
+  ta.value=(ta.value?ta.value.replace(/\s+$/," "):"")+ins;
+  ta.focus();ta.dispatchEvent(new Event("input"));
+}
+/* ---------- Sessions ---------- */
+const STMAP={running:["run","运行中"],idle:["idle","空闲"]};
+function viewSessions(){
+  const q=snQuery.trim().toLowerCase();
+  const rows=SESSIONS.filter(s=>{
+    if(snFilter==="running"&&s.status!=="running")return false;
+    if(snFilter==="idle"&&s.status!=="idle")return false;
+    return !q||s.t.toLowerCase().includes(q);
+  });
+  const chip=(k,label)=>'<button class="sn-fchip'+(snFilter===k?" on":"")+'" data-fchip="'+k+'">'+label+"</button>";
+  const body=rows.length?rows.map((s,i)=>{
+    const st=STMAP[s.status];
+    const si=SESSIONS.indexOf(s);
+    return '<tr data-open="y" class="'+(s.status==="running"?"run":"")+'">'+
+      '<td><div class="sn-tt">'+esc(s.t)+"</div></td>"+
+      '<td><span class="sn-st"><span class="sn-dot '+st[0]+'"></span>'+st[1]+"</span></td>"+
+      '<td class="sn-td-dim">'+s.time+"</td>"+
+      '<td class="sn-td-dim mono">'+s.msgs+"</td>"+
+      '<td class="sn-td-dim mono">'+s.tok+"</td>"+
+      '<td><div class="sn-actions"><button class="sn-act" title="打开" data-openrow="'+si+'">↗</button>'+
+      '<button class="sn-act" title="删除" data-del="'+si+'">✕</button></div></td></tr>';
+  }).join(""):'<tr><td colspan="6"><div class="sn-empty">没有匹配的会话 — 换个关键词或过滤器</div></td></tr>';
+  return '<div class="sn">'+
+    '<div class="sn-top"><span class="sn-title">Sessions</span>'+
+      '<label class="sn-search"><span class="sn-ic">⌕</span><input placeholder="搜索会话…" value="'+esc(snQuery)+'"></label>'+
+      '<div class="sn-fchips">'+chip("all","全部")+chip("running","运行中")+chip("idle","空闲")+"</div>"+
+      '<button class="btn btn-primary" data-goto="workspace">+ 新会话</button></div>'+
+    '<div class="sn-body" data-scroll><div class="sn-wrap">'+
+      '<p class="sn-count mono">'+rows.length+' / '+SESSIONS.length+' sessions · data/sessions/admin/</p>'+
+      '<div class="sn-tablebox"><div class="sn-scrollbox"><table class="sn-table">'+
+      "<thead><tr><th>会话</th><th>状态</th><th>最近更新</th><th>消息</th><th>Tokens</th><th></th></tr></thead>"+
+      "<tbody>"+(rows.length?body:"")+"</tbody></table></div></div>"+
+      '<div class="lg-note" style="margin-top:14px">原型演示:搜索与过滤实时生效(内存)。↗ 打开进入工作台;✕ 删除会话(v1 语义:真删除,JSONL 文件一并移除,无归档态)。</div>'+
+    "</div></div></div>";
+}
+/* ---------- Settings ---------- */
+function modelRow(m){
+  const i=MODELS.indexOf(m);
+  const isDef=SETTINGS.model===m.id;
+  const prov=m.provider==="anthropic"?"Anthropic":'<span title="'+esc(m.base||"")+'">OpenAI 兼容</span>';
+  return '<div class="se-row se-mrow'+(isDef?" def":"")+'" data-setmodel="'+i+'">'+
+    '<span class="pat">'+esc(m.id)+"</span>"+
+    (isDef?'<span class="se-badge def">默认</span>':"")+
+    '<span class="sp"></span><span class="se-badge">'+prov+"</span>"+
+    (m.provider==="anthropic"?"":'<button class="se-x" data-delmodel="'+i+'" title="移除">✕</button>')+"</div>";
+}
+function modelAdd(){
+  return '<div class="se-add"><input id="se-newmodel" placeholder="模型 ID,如 deepseek-v3.2">'+
+    '<select id="se-newprov"><option value="anthropic">Anthropic</option><option value="custom">OpenAI 兼容</option></select>'+
+    '<button class="btn" data-addmodel>添加</button>'+
+    '<input id="se-newbase" placeholder="Base URL,如 https://api.deepseek.com/v1" style="display:none"></div>';
+}
+function viewSettings(){
+  const seg=(arr,cur,kind)=>'<div class="se-seg">'+arr.map(v=>'<button class="'+(v===cur?"on":"")+'" data-seg="'+kind+':'+v+'">'+v+"</button>").join("")+"</div>";
+  const rows=SETTINGS.patterns.map((pt,i)=>'<div class="se-row"><span class="pat">'+esc(pt.p)+'</span><span class="sp"></span>'+
+    '<span class="se-badge'+(pt.scope==="session"?" session":"")+'">'+(pt.scope==="session"?"本会话":"全局")+"</span>"+
+    '<button class="se-x" data-delpat="'+i+'" title="移除">✕</button></div>').join("")+
+    '<div class="se-add"><input id="se-newpat" placeholder="添加 pattern,如 rm* 或 docker*"><select id="se-newscope"><option value="global">全局</option><option value="session">本会话</option></select>'+
+    '<button class="btn" data-addpat>添加</button></div>';
+  return '<div class="se">'+
+    '<div class="se-top"><span class="se-title">Settings</span><span class="chip">settings.json · 演示</span></div>'+
+    '<div class="se-body" data-scroll><div class="se-col">'+
+      '<div class="se-sec"><h3>模型</h3><p class="desc">默认模型与 thinking 强度;自定义模型并入 GET /api/models,Provider 抽象按多 Provider 形态设计。</p>'+
+        '<div class="se-label">可用模型 — 点击行设为默认;自定义行可移除</div>'+
+        '<div class="se-rows">'+MODELS.map(modelRow).join("")+modelAdd()+"</div>"+
+        '<div class="se-label">Thinking level(映射到 API effort)</div>'+seg(THINK,SETTINGS.thinking,"thinking")+"</div>"+
+      '<div class="se-sec"><h3>Tool Approval</h3><p class="desc">危险工具(bash 等)执行前推送 approval_request,确认后放行;关闭白名单即回到 pi 的无审批行为。</p>'+
+        '<div class="se-togrow"><div><div class="tt">执行前需要审批</div><div class="dd">关闭后所有工具直接执行(v1 仅内网信任环境建议保持开启)</div></div><span class="sp"></span>'+
+        '<button class="se-switch'+(SETTINGS.approvalOn?" on":"")+'" data-toggle aria-label="切换审批开关"></button></div>'+
+        (SETTINGS.approvalOn?'<div class="se-label">白名单 pattern</div><div class="se-rows">'+rows+"</div>":"")+"</div>"+
+      '<div class="se-sec"><h3>运行</h3><p class="desc">每个运行中的 Agent Loop 是一个 asyncio task;bash 子进程强制超时。</p>'+
+        '<div class="se-numrow"><div class="se-numf"><label>全局并发 Loop 上限</label><input value="'+SETTINGS.maxLoops+'"></div>'+
+        '<div class="se-numf"><label>bash 超时(秒)</label><input value="'+SETTINGS.bashTimeout+'"></div></div></div>'+
+      '<div class="se-savebar"><button class="btn btn-primary" data-save>保存</button><span class="hint">原型演示:仅保存在内存,刷新即失。</span></div>'+
+    "</div></div></div>";
+}
+/* ---------- 事件 ---------- */
+function toast(msg){
+  const t=document.createElement("div");t.className="toast";t.textContent=msg;
+  document.body.appendChild(t);setTimeout(function(){t.remove()},2000);
+}
+app.addEventListener("click",function(ev){
+  const t=ev.target;
+  if(!t.closest("[data-wk-menu],[data-wk-menuel]"))wkCloseMenus();
+  const g=t.closest("[data-goto]");
+  if(g){goto(g.dataset.goto);return}
+  if(t.closest("[data-login]")){goto("workspace");return}
+  const mbtn=t.closest("[data-wk-menu]");
+  if(mbtn){wkToggleMenu(mbtn.dataset.wkMenu);return}
+  const mi=t.closest("[data-wk-model]");
+  if(mi){wkSelectModel(+mi.dataset.wkModel);return}
+  const ti=t.closest("[data-wk-think]");
+  if(ti){wkSelectThink(ti.dataset.wkThink);return}
+  const at=t.closest("[data-wk-att]");
+  if(at){wkAttach(at.dataset.wkAtt);return}
+  if(t.closest("[data-wk-mic]")){toast("语音输入:v1 不做 — 原型占位");return}
+  const sb=t.closest("[data-wk-send]");
+  if(sb){if(sb.dataset.wkStop)wkAbort();else wkSendText();return}
+  if(t.closest("[data-wk-abort]")){wkAbort();return}
+  const seg=t.closest("[data-seg]");
+  if(seg){const parts=seg.dataset.seg.split(":");
+    if(parts[0]==="model")SETTINGS.model=parts[1];
+    if(parts[0]==="thinking")SETTINGS.thinking=parts[1];
+    render();return}
+  if(t.closest("[data-toggle]")){SETTINGS.approvalOn=!SETTINGS.approvalOn;render();return}
+  const del=t.closest("[data-delpat]");
+  if(del){SETTINGS.patterns.splice(+del.dataset.delpat,1);render();return}
+  if(t.closest("[data-addpat]")){addPattern();return}
+  if(t.closest("[data-addmodel]")){addModel();return}
+  const dm=t.closest("[data-delmodel]");
+  if(dm){const i=+dm.dataset.delmodel;
+    if(MODELS[i].id===SETTINGS.model&&MODELS.length>1)SETTINGS.model=MODELS[(i+1)%MODELS.length].id;
+    MODELS.splice(i,1);render();return}
+  const sm=t.closest("[data-setmodel]");
+  if(sm){SETTINGS.model=MODELS[+sm.dataset.setmodel].id;render();return}
+  if(t.closest("[data-save]")){toast("已保存(演示 — 仅内存)");return}
+  const dl=t.closest("[data-del]");
+  if(dl){SESSIONS.splice(+dl.dataset.del,1);render();return}
+  if(t.closest("[data-openrow],tr[data-open='y']")){goto("workspace");return}
+  const fc=t.closest("[data-fchip]");
+  if(fc){snFilter=fc.dataset.fchip;render();return}
+});
+app.addEventListener("keydown",function(ev){
+  if(ev.key==="Enter"&&ev.target.id==="se-newpat"){addPattern()}
+  if(ev.key==="Enter"&&!ev.shiftKey&&ev.target.hasAttribute&&ev.target.hasAttribute("data-wk-ta")){ev.preventDefault();wkSendText()}
+  if(ev.key==="Escape")wkCloseMenus();
+});
+app.addEventListener("input",function(ev){
+  if(ev.target.closest(".sn-search")){snQuery=ev.target.value;render();focusSearch();return}
+  if(ev.target.hasAttribute&&ev.target.hasAttribute("data-wk-ta")){
+    const ta=ev.target;
+    ta.style.height="auto";ta.style.height=Math.min(ta.scrollHeight,160)+"px";
+    wkUpdateSend();
+  }
+});
+function focusSearch(){
+  const inp=app.querySelector(".sn-search input");
+  if(inp){inp.focus();const v=inp.value;inp.setSelectionRange(v.length,v.length)}
+}
+function addPattern(){
+  const inp=app.querySelector("#se-newpat");
+  const scope=app.querySelector("#se-newscope");
+  if(!inp||!inp.value.trim())return;
+  SETTINGS.patterns.push({p:inp.value.trim(),scope:scope?scope.value:"global"});
+  render();
+  const ni=app.querySelector("#se-newpat");if(ni)ni.focus();
+}
+function addModel(){
+  const inp=app.querySelector("#se-newmodel");
+  const prov=app.querySelector("#se-newprov");
+  const base=app.querySelector("#se-newbase");
+  if(!inp||!inp.value.trim())return;
+  const id=inp.value.trim();
+  if(MODELS.some(function(m){return m.id===id})){toast("模型已存在");inp.select();return}
+  const custom=prov&&prov.value==="custom";
+  MODELS.push({id:id,provider:custom?"custom":"anthropic",base:custom?(base&&base.value.trim()||""):""});
+  render();
+  const ni=app.querySelector("#se-newmodel");if(ni)ni.focus();
+}
+app.addEventListener("change",function(ev){
+  if(ev.target.id==="se-newprov"){
+    const b=app.querySelector("#se-newbase");
+    if(b)b.style.display=ev.target.value==="custom"?"flex":"none";
+  }
+});
+document.addEventListener("keydown",function(ev){
+  if(ev.key!=="ArrowLeft"&&ev.key!=="ArrowRight")return;
+  const t=ev.target;
+  if(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.isContentEditable))return;
+  const i=PAGES.findIndex(p=>p.key===current);
+  goto(PAGES[(i+(ev.key==="ArrowRight"?1:PAGES.length-1))%PAGES.length].key);
+});
+(function boot(){
+  const q=new URLSearchParams(location.search);
+  const p=q.get("page")||"login";
+  current=PAGES.some(function(x){return x.key===p})?p:"login";
+  render();
+  const mo=q.get("menu");
+  if(mo&&current==="workspace")wkToggleMenu(mo);
+})();
+</script>

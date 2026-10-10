@@ -1,0 +1,23 @@
+# Super Agent 内网部署（ticket 15）
+# 用法：ANTHROPIC_API_KEY=sk-... docker compose up -d
+# 数据持久化在 ./data（会话/记忆/工作区/扩展/配置），升级镜像不丢数据。
+services:
+  super-agent:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: super-agent
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env          # ANTHROPIC_API_KEY=... （必填）；TAVILY_API_KEY=...（可选）
+    environment:
+      SUPER_AGENT_DATA: /data
+    volumes:
+      - ../data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -1,0 +1,705 @@
+<!--
+  UI 原型(throwaway,可随时删除)
+  问题:Super Agent 的 Chat 界面该长什么样?(MessageList / ToolCallCard / ApprovalDialog / Composer)
+  5 个结构迥异的变体,?variant=a|b|c|d|e 切换(底部浮条 / ←→ 键):
+    A 终端流 · B 侧栏工作台 · C 时间线+检查器 · D 文档画布 · E Claude Code 终端(模仿 CC 的 TUI)
+  形态:前端尚未开工(Vue3 脚手架不存在),无既有路由可寄宿 —— sub-shape B:
+  零依赖单文件,双击即开。同一份 mock 会话数据驱动全部变体。
+  场景:readiness NaN 排查 —— pytest 白名单放行执行中 + pip install 待审批 + follow-up 排队。
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Agent Chat 原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* ---------- tokens ---------- */
+:root{
+  --ground:#EDEFF1; --surface:#FFFFFF; --surface2:#F5F6F8;
+  --ink:#191D21; --ink2:#5A6470; --ink3:#8A94A0;
+  --line:#D9DDE2; --line2:#E7EAEE;
+  --accent:#0E7490; --accent-soft:#E1EFF3; --on-accent:#FFFFFF;
+  --error:#B3261E; --error-soft:#F9E5E3;
+  --warn:#96590A; --warn-soft:#F7EDD9;
+  --shadow:0 12px 32px rgba(16,20,26,.16);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --ground:#101318; --surface:#181D24; --surface2:#1F262F;
+  --ink:#E7EAEE; --ink2:#9AA4B0; --ink3:#69737F;
+  --line:#2A323D; --line2:#222933;
+  --accent:#45C4D8; --accent-soft:#14333C; --on-accent:#062A33;
+  --error:#F0716C; --error-soft:#3A2124;
+  --warn:#E8B14A; --warn-soft:#3A2F1B;
+  --shadow:0 12px 32px rgba(0,0,0,.5);
+}}
+:root[data-theme="dark"]{
+  --ground:#101318; --surface:#181D24; --surface2:#1F262F;
+  --ink:#E7EAEE; --ink2:#9AA4B0; --ink3:#69737F;
+  --line:#2A323D; --line2:#222933;
+  --accent:#45C4D8; --accent-soft:#14333C; --on-accent:#062A33;
+  --error:#F0716C; --error-soft:#3A2124;
+  --warn:#E8B14A; --warn-soft:#3A2F1B;
+  --shadow:0 12px 32px rgba(0,0,0,.5);
+}
+/* ---------- base ---------- */
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ground); color:var(--ink); overflow:hidden;
+  font:14px/1.6 "IBM Plex Sans","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
+input,textarea{font:inherit;color:inherit}
+pre{margin:0}
+#app{height:100dvh}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+/* ---------- primitives ---------- */
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;font-variant-numeric:tabular-nums}
+.code{background:var(--surface2);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.65;overflow-x:auto;white-space:pre}
+:where(p) code{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:.92em;background:var(--surface2);border:1px solid var(--line2);border-radius:4px;padding:.5px 5px}
+.taglbl{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:10.5px;letter-spacing:.12em;color:var(--ink3);text-transform:uppercase}
+.tmeta{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:6px 14px;font-size:13px;font-weight:500;transition:border-color .15s,background .15s}
+.btn:hover{border-color:var(--ink3)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{border-color:var(--accent);filter:brightness(1.06)}
+.btn-ghost{background:transparent;border-color:transparent;color:var(--ink2)}
+.btn-ghost:hover{border-color:var(--line);color:var(--ink)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11px;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:2px 9px;background:var(--surface);white-space:nowrap;font-variant-numeric:tabular-nums}
+.st-glyph{display:inline-block;font-style:normal}
+.st-ok{color:var(--ink2)}
+.st-run{color:var(--accent)}
+.st-warn{color:var(--warn)}
+.st-err{color:var(--error)}
+.dadd{color:var(--accent)}
+.spin{display:inline-block;animation:rot 1s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.cursor{display:inline-block;width:8px;height:1em;background:var(--accent);vertical-align:-2px;animation:blink 1.05s steps(1) infinite;margin-left:2px}
+@keyframes blink{50%{opacity:0}}
+.pulse{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 5px var(--accent-soft)}}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+/* ---------- switcher ---------- */
+.switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:1000;display:flex;align-items:center;gap:2px;background:var(--ink);color:var(--ground);border-radius:999px;padding:5px 8px 5px 6px;box-shadow:var(--shadow)}
+.switcher .proto-tag{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:10.5px;letter-spacing:.08em;border:1px solid rgba(127,127,127,.45);border-radius:999px;padding:2px 8px;opacity:.85;margin-right:2px}
+.switcher button{color:var(--ground);width:26px;height:26px;border-radius:999px;display:grid;place-items:center;font-size:12px}
+.switcher button:hover{background:rgba(127,127,127,.3)}
+.switcher .vlabel{font-size:12.5px;font-weight:500;padding:0 8px;white-space:nowrap;min-width:118px;text-align:center}
+/* ---------- A · 终端流 ---------- */
+.va{height:100%;display:flex;flex-direction:column}
+.va-top{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 20px;border-bottom:1px solid var(--line2);font-size:12px;color:var(--ink2);flex:none}
+.va-session{color:var(--ink);font-weight:500}
+.va-scroll{flex:1;overflow-y:auto;min-height:0}
+.va-stream{max-width:880px;margin:0 auto;padding:26px 28px 30px;display:flex;flex-direction:column;gap:18px}
+.va-e{display:flex;gap:12px;align-items:flex-start}
+.va-pre{flex:none;width:20px;text-align:right;color:var(--ink3);font-size:13px;padding-top:2px}
+.va-user .va-pre{color:var(--accent);font-weight:500}
+.va-user p{margin:0;font-size:14px}
+.va-think{color:var(--ink2)}
+.va-think p{margin:3px 0 0;font-size:12.5px;line-height:1.65}
+.va-asst p{margin:0;font-size:14px;line-height:1.7}
+.va-asst .code{margin:10px 0}
+.va-tool{flex-direction:column;gap:0;padding-left:32px}
+.va-tool-head{display:flex;align-items:center;gap:10px;width:100%;padding:7px 0;cursor:pointer;border-top:1px solid var(--line2);color:var(--ink2);text-align:left}
+.va-e[data-status="approval"] .va-tool-head{border-top-color:var(--warn)}
+.va-tool-badge{flex:none;font-size:11px;color:var(--ink);background:var(--surface2);border:1px solid var(--line2);border-radius:5px;padding:1px 7px}
+.va-tool-args{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;color:var(--ink2)}
+.va-e[data-status="approval"] .va-tool-args{color:var(--warn)}
+.va-tool-meta{flex:none;font-size:11px;color:var(--ink3);white-space:nowrap}
+.va-chev{flex:none;font-size:11px;color:var(--ink3);transition:transform .15s}
+.va-tool.open .va-chev{transform:rotate(90deg)}
+.va-tool-out{display:none;font-size:12px;color:var(--ink2);background:var(--surface2);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;overflow-x:auto;white-space:pre;line-height:1.6}
+.va-tool.open .va-tool-out{display:block}
+.va-approve{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}
+.va-approve .note{font-size:11.5px;color:var(--warn);margin-right:auto}
+.va-queued{border:1px dashed var(--line);border-radius:8px;padding:10px 14px;margin-left:32px;color:var(--ink2)}
+.va-queued p{margin:4px 0 0;font-size:12.5px}
+.va-compose{flex:none;border-top:1px solid var(--line2)}
+.va-compose-inner{max-width:880px;margin:0 auto;padding:14px 28px 56px}
+.va-compose-row{display:flex;align-items:center;gap:10px}
+.va-prompt{color:var(--accent);font-weight:500}
+.va-input{flex:1;min-width:0;background:transparent;border:none;outline:none;font-size:13.5px;padding:4px 0}
+.va-input::placeholder{color:var(--ink3)}
+.va-hint{flex:none;font-size:11px;color:var(--ink3);white-space:nowrap}
+.va-compose-sub{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11px;color:var(--ink3)}
+.va-abort{color:var(--error);font-size:11px}
+.va-abort:hover{text-decoration:underline}
+.va-sep{opacity:.6}
+/* ---------- B · 侧栏工作台 ---------- */
+.vb{height:100%;display:flex}
+.vb-side{flex:none;width:264px;background:var(--ground);border-right:1px solid var(--line2);display:flex;flex-direction:column;padding:16px 12px 12px}
+.vb-brand{font-weight:600;font-size:14px;letter-spacing:.02em;padding:2px 10px 12px}
+.vb-brand em{font-style:normal;color:var(--accent)}
+.vb-new{justify-content:center;margin-bottom:14px}
+.vb-sessions{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.vb-sess{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:8px;text-align:left}
+.vb-sess:hover{background:var(--surface2)}
+.vb-sess.active{background:var(--accent-soft)}
+.vb-sess .t{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vb-sess.active .t{color:var(--accent)}
+.vb-sess .s{font-size:11.5px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vb-side-foot{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line2);padding:10px 6px 2px;font-size:12px;color:var(--ink2)}
+.vb-main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--surface)}
+.vb-head{flex:none;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 22px;border-bottom:1px solid var(--line2)}
+.vb-title{font-size:15px;font-weight:600}
+.vb-sub{font-size:11.5px;color:var(--ink3);margin-top:1px}
+.vb-head-actions{display:flex;align-items:center;gap:10px}
+.vb-runchip{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:3px 11px}
+.vb-runchip .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1.6s infinite}
+.vb-scroll{flex:1;overflow-y:auto;min-height:0}
+.vb-col{max-width:720px;margin:0 auto;padding:26px 24px 24px;display:flex;flex-direction:column;gap:18px}
+.vb-user{align-self:flex-end;max-width:78%;background:var(--accent-soft);border-radius:14px 14px 4px 14px;padding:9px 14px;font-size:14px;line-height:1.65}
+.vb-who{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink2);margin-bottom:6px}
+.vb-ava{width:18px;height:18px;border-radius:6px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-size:10.5px;font-weight:600}
+.vb-body{font-size:14px;line-height:1.7}
+.vb-body p{margin:0 0 8px}
+.vb-body p:last-child{margin-bottom:0}
+.vb-body .code{margin:8px 0}
+.vb-think{border-left:2px solid var(--line);padding:2px 0 2px 12px;color:var(--ink2);font-size:12.5px;line-height:1.65}
+.vb-think .taglbl{display:block;margin-bottom:2px}
+.vb-card{border:1px solid var(--line2);background:var(--surface2);border-radius:10px;overflow:hidden}
+.vb-card-head{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;width:100%;text-align:left}
+.vb-card-head:hover{background:var(--line2)}
+.vb-card-ic{width:22px;height:22px;border-radius:6px;background:var(--surface);border:1px solid var(--line2);display:grid;place-items:center;font-size:11px;color:var(--ink2);flex:none}
+.vb-card-name{flex:none;font-size:12px;font-weight:500;color:var(--ink)}
+.vb-card-args{flex:1;min-width:0;font-size:11.5px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vb-card-status{flex:none;font-size:11px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.vb-chev{flex:none;font-size:10px;color:var(--ink3);transition:transform .15s}
+.vb-card.open .vb-chev{transform:rotate(90deg)}
+.vb-card-out{display:none;border-top:1px solid var(--line2);padding:10px 12px;font-size:12px;line-height:1.6;color:var(--ink2);overflow-x:auto;white-space:pre}
+.vb-card.open .vb-card-out{display:block}
+.vb-card[data-status="approval"]{border-color:var(--warn)}
+.vb-card[data-status="approval"] .vb-card-status{color:var(--warn)}
+.vb-modal{position:fixed;inset:0;z-index:900;display:grid;place-items:center;background:rgba(10,13,17,.45)}
+.vb-dialog{width:min(480px,calc(100vw - 48px));background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px}
+.vb-dialog h3{margin:0 0 4px;font-size:15px}
+.vb-dialog .sub{font-size:12.5px;color:var(--ink2);margin:0 0 14px}
+.vb-cmd{font-size:12.5px;background:var(--surface2);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;white-space:pre-wrap;word-break:break-all;margin:0 0 14px}
+.vb-why{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--warn);background:var(--warn-soft);border-radius:8px;padding:8px 11px;margin:0 0 16px}
+.vb-dialog-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.vb-compose-wrap{flex:none;padding:0 22px 58px;background:var(--surface)}
+.vb-compose-box{max-width:720px;margin:0 auto}
+.vb-queue{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--ink2);background:var(--surface2);border:1px solid var(--line2);border-radius:999px;padding:4px 12px;margin-bottom:8px}
+.vb-hint{font-size:11.5px;color:var(--ink3);margin:0 0 6px}
+.vb-compose{display:flex;align-items:flex-end;gap:10px;border:1px solid var(--line);border-radius:14px;background:var(--surface2);padding:10px 10px 10px 14px}
+.vb-compose:focus-within{border-color:var(--accent)}
+.vb-compose textarea{flex:1;border:none;background:transparent;outline:none;resize:none;font-size:14px;line-height:1.55;max-height:120px;padding:4px 0}
+.vb-compose textarea::placeholder{color:var(--ink3)}
+/* ---------- C · 时间线 + 检查器 ---------- */
+.vc{height:100%;display:flex;flex-direction:column}
+.vc-top{flex:none;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--line2)}
+.vc-title{font-size:15px;font-weight:600;display:flex;align-items:center;gap:10px;min-width:0}
+.vc-top-right{display:flex;align-items:center;gap:8px}
+.vc-usage{font-size:11.5px;color:var(--ink3);white-space:nowrap}
+.vc-abort{border-color:var(--error);color:var(--error)}
+.vc-abort:hover{border-color:var(--error);background:var(--error-soft)}
+.vc-body{flex:1;min-height:0;display:flex}
+.vc-left{flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--line2)}
+.vc-scroll{flex:1;overflow-y:auto;min-height:0}
+.vc-tl{max-width:640px;margin:0 auto;padding:24px 26px 40px;position:relative}
+.vc-tl::before{content:"";position:absolute;left:12px;top:56px;bottom:60px;width:2px;background:var(--line)}
+.vc-turn{font-size:10.5px;letter-spacing:.14em;color:var(--ink3);margin:0 0 14px 34px}
+.vc-turn-ghost{margin-top:22px;margin-bottom:0;opacity:.85}
+.vc-node{position:relative;display:flex;gap:14px;padding:7px 10px 7px 34px;cursor:pointer;border-radius:8px}
+.vc-node:hover,.vc-node.sel{background:var(--surface2)}
+.vc-node.sel{box-shadow:inset 2px 0 0 var(--accent)}
+.vc-dot{position:absolute;left:7px;top:15px;width:12px;height:12px;border-radius:50%;border:2px solid var(--ink3);background:var(--ground);z-index:1}
+.vc-node[data-status="running"] .vc-dot{border-color:var(--accent);background:var(--accent-soft)}
+.vc-node[data-status="approval"] .vc-dot{border-color:var(--warn);background:var(--warn-soft)}
+.vc-node[data-status="denied"] .vc-dot{border-color:var(--error)}
+.vc-node.is-user .vc-dot,.vc-node.is-queued .vc-dot{border-style:dashed}
+.vc-node.is-queued .vc-dot{opacity:.75}
+.vc-node-body{flex:1;min-width:0;padding:1px 0}
+.vc-node-head{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);min-width:0}
+.vc-node-head .st-glyph{font-size:11px;flex:none}
+.vc-badge{flex:none;font-size:10.5px;color:var(--ink3);border:1px solid var(--line2);background:var(--surface);border-radius:5px;padding:0 6px}
+.vc-args{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.vc-node-title{color:var(--ink);font-weight:500;font-size:13px}
+.vc-node-text{font-size:12.5px;color:var(--ink2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.55}
+.vc-node-text.vc-strong{color:var(--ink);font-weight:500}
+.vc-node-sub{font-size:11px;color:var(--ink3);margin-top:2px}
+.vc-time{flex:none;font-size:10.5px;color:var(--ink3);padding-top:4px}
+.vc-compose{flex:none;border-top:1px solid var(--line2);padding:10px 20px 58px}
+.vc-queue{font-size:11.5px;color:var(--ink2);margin-bottom:8px}
+.vc-compose-row{display:flex;align-items:center;gap:10px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px}
+.vc-compose-row:focus-within{border-color:var(--accent)}
+.vc-compose-row input{flex:1;min-width:0;border:none;background:transparent;outline:none;font-size:13.5px}
+.vc-compose-row input::placeholder{color:var(--ink3)}
+.vc-insp{flex:none;width:400px;display:flex;flex-direction:column;background:var(--surface)}
+.vc-insp-head{flex:none;display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line2)}
+.vc-insp-title{font-size:11px;letter-spacing:.12em;color:var(--ink3);text-transform:uppercase}
+.vc-insp-status{margin-left:auto}
+.vc-insp-status .st-warn,.vc-insp-status .st-run,.vc-insp-status .st-err,.vc-insp-status .st-ok{font-size:11px}
+.vc-insp-body{flex:1;overflow-y:auto;min-height:0;padding:16px 18px;display:flex;flex-direction:column;gap:16px}
+.vc-eyebrow{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:6px}
+.vc-insp-body p{margin:0;font-size:13px;line-height:1.65;color:var(--ink2)}
+.vc-insp-body p .mono{font-size:11.5px}
+.vc-insp-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:4px}
+/* ---------- D · 文档画布 ---------- */
+.vd{height:100%;display:flex;flex-direction:column;position:relative}
+.vd-top{flex:none;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 26px;border-bottom:1px solid var(--line2)}
+.vd-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px;cursor:pointer}
+.vd-caret{font-size:10px;color:var(--ink3)}
+.vd-right{display:flex;align-items:center;gap:10px}
+.vd-usage{font-size:11.5px;color:var(--ink3);white-space:nowrap}
+.vd-scroll{flex:1;overflow-y:auto;min-height:0}
+.vd-col{max-width:760px;margin:0 auto;padding:30px 26px 40px;display:flex;flex-direction:column;gap:22px}
+.vd-user{background:var(--surface);border-left:3px solid var(--accent);border-radius:0 12px 12px 0;padding:12px 16px;font-size:14px;line-height:1.7}
+.vd-prose{font-family:"Noto Serif SC","Songti SC",serif;font-size:15.5px;line-height:1.9}
+.vd-prose p{margin:0 0 10px}
+.vd-prose p:last-child{margin-bottom:0}
+.vd-prose .code{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:12.5px;margin:10px 0}
+.vd-think{font-size:12.5px;color:var(--ink2);line-height:1.65;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);padding:9px 0}
+.vd-think .taglbl{margin-right:8px}
+.vd-think .tmeta{margin-right:8px}
+.vd-toolblock{display:flex;flex-direction:column}
+.vd-chips{display:flex;flex-wrap:wrap;gap:8px}
+.vd-chip{display:inline-flex;align-items:center;gap:7px;max-width:100%;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:var(--surface)}
+.vd-chip .vd-arg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vd-chip:hover{border-color:var(--ink3)}
+.vd-chip[data-status="approval"]{color:var(--warn);border-color:var(--warn)}
+.vd-chip[data-status="running"]{color:var(--accent);border-color:var(--accent)}
+.vd-panel{border:1px solid var(--line2);background:var(--surface2);border-radius:12px;padding:12px 14px;margin-top:10px}
+.vd-panel pre{font-size:12px;color:var(--ink2);white-space:pre-wrap;word-break:break-word;line-height:1.6}
+.vd-panel .vd-note{font-size:12px;color:var(--warn);margin:8px 0 0}
+.vd-panel .vd-approve{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.vd-banner{position:absolute;left:50%;transform:translateX(-50%);bottom:150px;width:min(760px,calc(100% - 52px));display:flex;align-items:center;gap:12px;background:var(--warn-soft);border:1px solid var(--warn);border-radius:12px;padding:10px 14px;z-index:10}
+.vd-banner .t{flex:none;font-size:13px;color:var(--warn);font-weight:500;white-space:nowrap}
+.vd-banner .a{min-width:0;font-size:12px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vd-banner .sp{flex:1}
+.vd-compose-zone{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 26px 56px;pointer-events:none}
+.vd-queuechip{pointer-events:auto;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11px;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 12px;max-width:min(760px,100%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vd-pill{pointer-events:auto;display:flex;align-items:center;gap:10px;width:min(760px,100%);background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:var(--shadow);padding:8px 8px 8px 20px}
+.vd-pill:focus-within{border-color:var(--accent)}
+.vd-pill textarea{flex:1;min-width:0;border:none;background:transparent;outline:none;resize:none;font-size:14.5px;line-height:1.5;max-height:120px;padding:6px 0}
+.vd-pill textarea::placeholder{color:var(--ink3)}
+.vd-send{flex:none;width:38px;height:38px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-size:15px}
+.vd-send:hover{filter:brightness(1.06)}
+/* ---------- E · Claude Code 终端 ---------- */
+/* 刻意固定为 CC 的暖黑终端配色(模仿对象即单主题),不随页面主题 token */
+.ve{height:100%;display:flex;flex-direction:column;background:#191917;color:#EDEBE6;font-family:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;font-size:13.5px}
+.ve-scroll{flex:1;overflow-y:auto;min-height:0}
+.ve-t{max-width:980px;margin:0 auto;padding:28px 26px 34px}
+.ve-welcome{margin-bottom:24px}
+.ve-w1{color:#D97757;font-weight:600;font-size:14px}
+.ve-w2{margin:7px 0 10px;font-size:13.5px}
+.ve-w3{color:#6E6A61;font-size:11.5px;line-height:1.8}
+.ve-user{margin:0 0 18px;line-height:1.7}
+.ve-up{color:#6E6A61}
+.ve-think{margin:0 0 18px;color:#6E6A61;font-style:italic;font-size:12.5px;line-height:1.7}
+.ve-thh{margin-bottom:7px;color:#B8B4AA;font-style:normal;font-size:12.5px}
+.ve-asst{margin:0 0 18px;line-height:1.7}
+.ve-asst p{margin:0 0 10px}
+.ve-asst p:last-child{margin-bottom:0}
+.ve .code{background:#262521;border:1px solid #33312C;border-radius:6px;color:#D9D5CC;margin:10px 0}
+.ve :where(p) code{background:#262521;border:1px solid #33312C;color:#D9D5CC}
+.ve .dadd{color:#7FB285}
+.ve strong{color:#FFFFFF;font-weight:600}
+.ve-tool{margin:0 0 16px}
+.ve-tline{display:flex;gap:8px;align-items:baseline;cursor:pointer;min-width:0}
+.ve-dot{color:#D97757;flex:none}
+.ve-tname{font-weight:600;flex:none}
+.ve-dim{color:#6E6A61;flex:none}
+.ve-targs{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#B8B4AA}
+.ve-tmeta{flex:none;color:#6E6A61;font-size:11px}
+.ve-res{display:flex;gap:8px;padding:3px 0 0 4px;color:#8A867D;line-height:1.6;min-width:0}
+.ve-g{color:#5C5952;flex:none}
+.ve-resbody{min-width:0;white-space:pre;overflow-x:auto;flex:1}
+.ve-approve{border-top:1px solid #33312C;border-bottom:1px solid #33312C;padding:14px 0 12px;margin:12px 0 4px}
+.ve-alabel{font-weight:600;font-size:12px;margin-bottom:8px}
+.ve-abox{background:#262521;border:1px solid #33312C;border-radius:6px;padding:8px 11px;color:#D9D5CC;white-space:pre-wrap;word-break:break-all;margin-bottom:12px}
+.ve-aq{margin-bottom:8px}
+.ve-opt{display:flex;gap:9px;align-items:baseline;width:100%;text-align:left;padding:3px 6px;border-radius:5px;color:#D9D5CC}
+.ve-opt:hover{background:#262521}
+.ve-opt .ve-cur{visibility:hidden;color:#D97757;flex:none}
+.ve-opt:hover .ve-cur{visibility:visible}
+.ve-num{color:#6E6A61;flex:none}
+.ve-ahint{margin-top:10px;color:#5C5952;font-size:11px}
+.ve-bottom{flex:none;padding:0 26px 56px}
+.ve-bwrap{max-width:980px;margin:0 auto}
+.ve-status{display:flex;gap:8px;align-items:baseline;padding:0 2px 8px;color:#D97757;font-size:12.5px}
+.ve-sthint{color:#6E6A61;font-size:12.5px}
+.ve-sthint:hover{color:#8A867D;text-decoration:underline}
+.ve-sp{flex:1}
+.ve-tok{color:#6E6A61;font-size:11px}
+.ve-box{border:1px solid #4A4740;border-radius:10px;padding:10px 14px;display:flex;gap:10px;align-items:center;background:#1F1E1B}
+.ve-box:focus-within{border-color:#7A766C}
+.ve-caret{color:#6E6A61;flex:none}
+.ve-input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:#EDEBE6;font-size:13.5px;font-family:inherit}
+.ve-input::placeholder{color:#5C5952}
+.ve-hints{display:flex;justify-content:space-between;gap:12px;padding:8px 2px 0;color:#5C5952;font-size:11px;flex-wrap:wrap}
+.ve .cursor{background:#D97757}
+/* ---------- responsive & motion ---------- */
+@media (max-width:1100px){.vc-insp{width:320px}}
+@media (max-width:920px){.vb-side{width:212px}}
+@media (max-width:840px){.vc-insp{display:none}}
+@media (prefers-reduced-motion: reduce){
+  .spin,.cursor,.pulse,.vb-runchip .dot{animation:none}
+  .va-chev,.vb-chev{transition:none}
+}
+</style>
+<div id="app"></div>
+<script>
+"use strict";
+/* ---------- mock 数据(同一份驱动全部变体) ---------- */
+const SESSION={title:"查 readiness NaN",model:"claude-opus-5",thinking:"high",user:"admin",usage:"↑ 12.4k ↓ 1.8k"};
+const ENTRIES=[
+ {id:"e1",kind:"user",time:"14:02",text:"readiness pipeline 在 10-05 的数据上算出了 NaN,帮我查一下原因。"},
+ {id:"e2",kind:"thinking",time:"14:02",dur:"14s",tok:"412",text:"先定位 NaN 的环节:readiness.py 的加权计算,还是上游 imputation 的输出。先读代码,再对 10-05 跑一个最小复现。"},
+ {id:"e3",kind:"assistant",time:"14:02",text:"我先看 readiness 的计算链路,再对 10-05 的数据跑一个最小复现。"},
+ {id:"e4",kind:"tool",tool:"read",time:"14:03",status:"ok",meta:"L41–L61",args:"app/probe/readiness.py",
+  output:"# readiness.py · 加权段\nscore = (\n    sleep_score * 0.4\n    + hrv_ratio  * 0.35\n    + step_score * 0.25\n)"},
+ {id:"e5",kind:"tool",tool:"bash",time:"14:03",status:"ok",meta:"exit 0 · 白名单放行",
+  args:"python -c \"from app.probe.imputation import load_window; w = load_window('2026-10-05'); print(w.isna().sum())\"",
+  output:"hrv      37\nsleep     0\nsteps    12\n\n# 共 288 个采样点 · hrv 缺失 37 个"},
+ {id:"e6",kind:"assistant",time:"14:04",text:"原因找到了:10-05 当天 **hrv 有 37/288 个缺失**,而 `fill_forward` 只做前向填充——当天**开头**的 NaN 补不到,`hrv_ratio` 从首行起就是 NaN,加权后整个 readiness 为 NaN。修复:开头缺失用 `bfill` 兜底。\n\n```python\nw[\"hrv\"] = w[\"hrv\"].ffill().bfill()   # 开头缺失 bfill 兜底\n```"},
+ {id:"e7",kind:"tool",tool:"edit",time:"14:05",status:"ok",meta:"1 处替换",args:"app/probe/imputation.py",
+  output:"+        w[\"hrv\"] = w[\"hrv\"].ffill().bfill()   # 开头缺失 bfill 兜底"},
+ {id:"e8",kind:"assistant",time:"14:05",text:"补丁加上了。跑 readiness 测试验证;顺手装 pytest-timeout,给测试加超时保护。"},
+ {id:"e9",kind:"tool",tool:"bash",time:"14:05",status:"running",meta:"白名单放行 · pytest*",args:"python -m pytest tests/ -k readiness -q",
+  output:"test_readiness.py ........\ntest_imputation.py .."},
+ {id:"e10",kind:"tool",tool:"bash",time:"14:06",status:"approval",meta:"不在白名单",args:"pip install pytest-timeout",output:""},
+ {id:"e11",kind:"user",time:"—",queued:true,text:"顺便看看 imputation 里前向填充的窗口长度,别只补 NaN 不看窗口。"}
+];
+const SESSIONS=[
+ {t:"查 readiness NaN",s:"补丁已加,测试运行中",active:true},
+ {t:"M4 compaction 设计",s:"摘要条目何时插入",time:"昨天"},
+ {t:"BioSync 数据探查",s:"10 月窗口相关性",time:"10-03"},
+ {t:"周报整理",s:"已归档",time:"09-30"}
+];
+/* ---------- helpers ---------- */
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const inline=s=>s.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>");
+function md(src){
+  const out=[];const parts=String(src).split("```");
+  parts.forEach((p,i)=>{
+    if(i%2){out.push('<pre class="code">'+esc(p.replace(/^[a-z]*\n/,""))+"</pre>")}
+    else if(p.trim()){out.push(p.trim().split(/\n{2,}/).map(par=>"<p>"+inline(esc(par)).replace(/\n/g,"<br>")+"</p>").join(""))}
+  });
+  return out.join("");
+}
+const ST={
+  ok:{g:"✓",cls:"st-ok",label:"完成"},
+  running:{g:"◐",cls:"st-run",label:"运行中",spin:true},
+  approval:{g:"⏸",cls:"st-warn",label:"等待审批"},
+  denied:{g:"✗",cls:"st-err",label:"已拒绝"}
+};
+const TOOLG={read:"▤",edit:"±",bash:"$"};
+const thinkMeta=e=>e.dur?e.dur+" · "+e.tok+" tokens":"";
+const byId=id=>ENTRIES.find(e=>e.id===id);
+function glyph(e){const s=ST[e.status];return s?'<span class="st-glyph '+s.cls+(s.spin?" spin":"")+'">'+s.g+"</span>":""}
+function toolOut(e){
+  const cur=e.status==="running"?'<span class="cursor"></span>':"";
+  if(e.tool==="edit")return diffOut(e.output)+cur;
+  return esc(e.output)+cur;
+}
+function diffOut(t){return esc(t).split("\n").map(l=>l.charAt(0)==="+"?'<span class="dadd">'+l+"</span>":l).join("\n")}
+function approveBtns(e,compact){
+  const al=compact?"加白名单":"加入本会话白名单";
+  return '<button class="btn btn-ghost" data-approve="'+e.id+'" data-outcome="deny">拒绝</button>'+
+    '<button class="btn" data-approve="'+e.id+'" data-outcome="always">'+al+"</button>"+
+    '<button class="btn btn-primary" data-approve="'+e.id+'" data-outcome="once">允许一次</button>';
+}
+/* ---------- state ---------- */
+const app=document.getElementById("app");
+const expanded=new Set(["e9"]);
+let current="a",lastRendered=null,selected="e10";
+/* ---------- A · 终端流 ---------- */
+function entryA(e){
+  if(e.kind==="user")return '<div class="va-e va-user"><span class="va-pre mono">❯</span><p>'+esc(e.text)+"</p></div>";
+  if(e.kind==="thinking")return '<div class="va-e va-think"><span class="va-pre mono">·</span><div><span class="taglbl">思考</span>'+'<span class="tmeta" style="margin-left:8px">'+thinkMeta(e)+"</span><p>"+esc(e.text)+"</p></div></div>";
+  if(e.kind==="assistant")return '<div class="va-e va-asst"><span class="va-pre mono">◆</span><div>'+md(e.text)+"</div></div>";
+  if(e.kind==="tool"){
+    const open=expanded.has(e.id)?" open":"";
+    let body="";
+    if(e.status==="approval"){
+      body='<div class="va-approve"><span class="note">不在本会话白名单,需确认后执行</span>'+approveBtns(e)+"</div>";
+    }else if(e.output){
+      body='<pre class="va-tool-out mono">'+toolOut(e)+"</pre>";
+    }
+    return '<div class="va-e va-tool'+open+'" data-status="'+e.status+'">'+
+      '<div class="va-tool-head" data-expand="'+e.id+'">'+glyph(e)+
+      '<span class="va-tool-badge mono">'+TOOLG[e.tool]+" "+e.tool+"</span>"+
+      '<span class="va-tool-args mono">'+esc(e.args)+"</span>"+
+      '<span class="va-tool-meta mono">'+esc(e.meta||"")+'</span><span class="va-chev">▸</span></div>'+body+"</div>";
+  }
+  return "";
+}
+const VA={key:"a",name:"终端流",html(){
+  const list=ENTRIES.filter(e=>!e.queued).map(entryA).join("");
+  const q=byId("e11");
+  return '<div class="va">'+
+    '<div class="va-top mono"><span class="va-session">❯ '+esc(SESSION.title)+"</span><span>"+SESSION.model+" · thinking: "+SESSION.thinking+" · "+SESSION.usage+"</span></div>"+
+    '<div class="va-scroll" data-scroll><div class="va-stream">'+list+
+      '<div class="va-queued"><span class="taglbl">Follow-up 排队中</span><p>'+esc(q.text)+"</p></div>"+
+    "</div></div>"+
+    '<div class="va-compose"><div class="va-compose-inner">'+
+      '<div class="va-compose-row"><span class="va-prompt mono">❯</span><input class="va-input mono" placeholder="运行中 — 输入将作为 Steer 插话"><span class="va-hint mono">Enter · Steer</span></div>'+
+      '<div class="va-compose-sub mono"><button class="va-abort" data-abort>■ Abort</button><span class="va-sep">·</span><span>Esc 中断</span><span class="va-sep">·</span><span>Follow-up ×1 已排队</span></div>'+
+    "</div></div></div>";
+}};
+/* ---------- B · 侧栏工作台 ---------- */
+function entryB(e){
+  if(e.kind==="user")return '<div class="vb-user">'+esc(e.text)+"</div>";
+  if(e.kind==="thinking")return '<div class="vb-think"><span class="taglbl">思考过程</span><span class="tmeta" style="display:block;margin-bottom:3px">'+thinkMeta(e)+"</span>"+esc(e.text)+"</div>";
+  if(e.kind==="assistant")return '<div class="vb-msg"><div class="vb-who"><span class="vb-ava">A</span>Agent</div><div class="vb-body">'+md(e.text)+"</div></div>";
+  if(e.kind==="tool"){
+    const s=ST[e.status];const open=expanded.has(e.id)?" open":"";
+    const statusTxt=e.status==="approval"?"待审批":s.label;
+    return '<div class="vb-card'+open+'" data-status="'+e.status+'">'+
+      '<div class="vb-card-head" data-expand="'+e.id+'">'+
+      '<span class="vb-card-ic mono">'+TOOLG[e.tool]+"</span>"+
+      '<span class="vb-card-name mono">'+e.tool+"</span>"+
+      '<span class="vb-card-args mono">'+esc(e.args)+"</span>"+
+      '<span class="vb-card-status '+s.cls+'">'+glyph(e)+statusTxt+"</span>"+
+      '<span class="vb-chev">▸</span></div>'+
+      (e.output?'<div class="vb-card-out mono">'+toolOut(e)+"</div>":"")+"</div>";
+  }
+  return "";
+}
+const VB={key:"b",name:"侧栏工作台",html(){
+  const list=ENTRIES.filter(e=>!e.queued).map(entryB).join("");
+  const q=byId("e11");
+  const pend=ENTRIES.find(e=>e.status==="approval");
+  const modal=pend?'<div class="vb-modal"><div class="vb-dialog">'+
+    "<h3>Tool Approval · "+pend.tool+'</h3><p class="sub">这条命令要动你机器上的环境,确认后再执行。</p>'+
+    '<pre class="vb-cmd mono">'+esc(pend.args)+"</pre>"+
+    '<div class="vb-why"><span>⚠</span><span>bash 不在本会话白名单(<span class="mono">pytest*</span> 已放行);拒绝后 Agent 会收到工具错误并自行调整。</span></div>'+
+    '<div class="vb-dialog-actions">'+approveBtns(pend)+"</div></div></div>":"";
+  return '<div class="vb">'+
+    '<aside class="vb-side"><div class="vb-brand">Super<em> Agent</em></div>'+
+    '<button class="btn vb-new">+ 新会话</button>'+
+    '<div class="vb-sessions">'+SESSIONS.map(s=>'<button class="vb-sess'+(s.active?" active":"")+'"><span class="t">'+esc(s.t)+'</span><span class="s">'+(s.time?s.time+" · ":"")+esc(s.s)+"</span></button>").join("")+"</div>"+
+    '<div class="vb-side-foot"><span>'+SESSION.user+'</span><span class="mono">'+SESSION.model+"</span></div></aside>"+
+    '<main class="vb-main">'+
+      '<header class="vb-head"><div><div class="vb-title">'+esc(SESSION.title)+'</div><div class="vb-sub mono">'+SESSION.model+" · thinking: "+SESSION.thinking+" · "+SESSION.usage+"</div></div>"+
+      '<div class="vb-head-actions"><span class="vb-runchip"><i class="dot"></i>运行中</span><button class="btn btn-ghost" data-abort>■ Abort</button></div></header>'+
+      '<div class="vb-scroll" data-scroll><div class="vb-col">'+list+"</div></div>"+
+      '<div class="vb-compose-wrap"><div class="vb-compose-box">'+
+        '<div class="vb-queue">⏸ <span>Follow-up ×1 已排队 — '+esc(q.text).slice(0,18)+"…</span></div>"+
+        '<div class="vb-hint">运行中 · Enter 发送将作为 Steer 插话;运行结束后自动发送 Follow-up</div>'+
+        '<div class="vb-compose"><textarea rows="1" placeholder="插话 (Steer)…"></textarea><button class="btn btn-primary">Steer ▸</button></div>'+
+      "</div></div></main>"+modal+"</div>";
+}};
+/* ---------- C · 时间线 + 检查器 ---------- */
+function nodeC(e){
+  const s=ST[e.status];
+  const sel=selected===e.id?" sel":"";
+  const kindCls=e.queued?" is-queued":(e.kind==="user"?" is-user":"");
+  let body="";
+  if(e.kind==="tool"){
+    body='<div class="vc-node-body"><div class="vc-node-head">'+glyph(e)+
+      '<span class="vc-badge mono">'+e.tool+'</span><span class="vc-args mono">'+esc(e.args)+"</span></div>"+
+      '<div class="vc-node-sub">'+esc(e.meta||"")+" · "+s.label+"</div></div>";
+  }else{
+    const title=e.kind==="user"?"User":e.kind==="thinking"?"思考":"Agent";
+    const raw=e.kind==="assistant"?e.text.replace(/```[\s\S]*?```/g,"[代码块]").replace(/[*`]/g,""):e.text;
+    const sub=e.queued?"Follow-up · 运行结束后自动开始 Turn 2":(e.kind==="thinking"?"模型内部推理 · "+thinkMeta(e):"");
+    body='<div class="vc-node-body"><div class="vc-node-head"><span class="vc-node-title">'+title+"</span></div>"+
+      '<div class="vc-node-text'+(e.kind==="user"?" vc-strong":"")+'">'+esc(raw)+"</div>"+
+      (sub?'<div class="vc-node-sub">'+sub+"</div>":"")+"</div>";
+  }
+  return '<div class="vc-node'+sel+kindCls+'" data-node="'+e.id+'" data-status="'+(e.status||"")+'">'+
+    '<span class="vc-dot"></span>'+body+'<span class="vc-time mono">'+e.time+"</span></div>";
+}
+function inspectorC(){
+  const e=byId(selected)||byId("e10");
+  const s=ST[e.status];
+  const headLab=e.kind==="tool"?e.tool:(e.kind==="user"?"User":e.kind==="thinking"?"思考":"Agent");
+  const statusChip=s?'<span class="vc-insp-status '+s.cls+'">'+glyph(e)+s.label+"</span>":'<span class="vc-insp-status" style="color:var(--ink3);font-size:11px">排队中</span>';
+  let secs="";
+  if(e.kind==="tool"){
+    secs='<div><div class="vc-eyebrow">命令 / 目标</div><pre class="code">'+esc(e.args)+"</pre></div>";
+    if(e.meta)secs+='<div><div class="vc-eyebrow">状态</div><p>'+esc(e.meta)+"</p></div>";
+    if(e.output)secs+='<div style="flex:1;display:flex;flex-direction:column;min-height:120px"><div class="vc-eyebrow">输出</div><pre class="code" style="flex:1;overflow:auto">'+toolOut(e)+"</pre></div>";
+    else if(e.status==="approval")secs+='<div><div class="vc-eyebrow">说明</div><p>bash 不在本会话白名单(<span class="mono">pytest*</span> 已放行)。拒绝后 Agent 收到工具错误,会自行调整方案。</p></div>';
+    else if(e.status==="denied")secs='<div><div class="vc-eyebrow">命令 / 目标</div><pre class="code">'+esc(e.args)+'</pre></div><div><div class="vc-eyebrow">结果</div><p>用户拒绝了执行,Agent 已收到工具错误。</p></div>';
+  }else if(e.kind==="assistant"){
+    secs='<div>'+md(e.text)+"</div>";
+  }else{
+    secs="<div><p>"+esc(e.text)+"</p></div>";
+    if(e.kind==="thinking")secs+='<div><div class="vc-eyebrow">指标</div><p>思考 '+thinkMeta(e)+" — 计入该 Turn 的 output tokens。</p></div>";
+    if(e.queued)secs+='<div><div class="vc-eyebrow">调度</div><p>Follow-up 队列 — 当前运行结束后自动开始 Turn 2。</p></div>';
+  }
+  const actions=e.status==="approval"?'<div class="vc-insp-actions">'+approveBtns(e)+"</div>":"";
+  return '<div class="vc-insp-head"><span class="vc-insp-title">检查器</span><span class="chip">'+headLab+"</span>"+statusChip+"</div>"+
+    '<div class="vc-insp-body">'+secs+actions+"</div>";
+}
+const VC={key:"c",name:"时间线 + 检查器",html(){
+  const nodes=ENTRIES.map(nodeC).join("");
+  return '<div class="vc">'+
+    '<header class="vc-top"><div class="vc-title">'+esc(SESSION.title)+'<span class="chip">Turn 1</span></div>'+
+    '<div class="vc-top-right"><span class="chip">'+SESSION.model+" ▾</span><span class=\"chip\">thinking: "+SESSION.thinking+" ▾</span>"+
+    '<span class="vc-usage mono">'+SESSION.usage+'</span><button class="btn vc-abort" data-abort>■ Abort</button></div></header>'+
+    '<div class="vc-body"><section class="vc-left">'+
+      '<div class="vc-scroll" data-scroll><div class="vc-tl"><div class="vc-turn mono">TURN 1</div>'+nodes+
+      '<div class="vc-turn vc-turn-ghost mono">TURN 2 · FOLLOW-UP 排队中</div></div></div>'+
+      '<div class="vc-compose"><div class="vc-queue mono">⏸ Follow-up ×1 排队中 · 运行结束后自动开始</div>'+
+      '<div class="vc-compose-row"><input placeholder="插话 — 将进入 steering 队列"><span class="chip">Steer</span></div></div>'+
+    '</section><aside class="vc-insp" id="vc-insp">'+inspectorC()+"</aside></div></div>";
+}};
+/* ---------- D · 文档画布 ---------- */
+function entryD(e){
+  if(e.kind==="user")return '<div class="vd-user">'+esc(e.text)+"</div>";
+  if(e.kind==="thinking")return '<div class="vd-think"><span class="taglbl">思考</span><span class="tmeta">'+thinkMeta(e)+"</span>"+esc(e.text)+"</div>";
+  if(e.kind==="assistant")return '<div class="vd-prose">'+md(e.text)+"</div>";
+  if(e.kind==="tool"){
+    const argShort=e.args.length>36?e.args.slice(0,36)+"…":e.args;
+    let html='<div class="vd-toolblock"><div class="vd-chips"><button class="vd-chip" data-expand="'+e.id+'" data-status="'+e.status+'">'+
+      TOOLG[e.tool]+" "+e.tool+' ▸ <span class="vd-arg">'+esc(argShort)+"</span>"+glyph(e)+"</button></div>";
+    if(expanded.has(e.id)){
+      const pre=e.status==="approval"?esc(e.args):(e.output?toolOut(e):"(尚无输出)");
+      let panel='<div class="vd-panel"><pre class="mono">'+pre+"</pre>";
+      if(e.status==="approval")panel+='<p class="vd-note">不在本会话白名单,需确认后执行</p><div class="vd-approve">'+approveBtns(e)+"</div>";
+      html+=panel+"</div>";
+    }
+    return html+"</div>";
+  }
+  return "";
+}
+const VD={key:"d",name:"文档画布",html(){
+  const list=ENTRIES.filter(e=>!e.queued).map(entryD).join("");
+  const q=byId("e11");
+  const pend=ENTRIES.find(e=>e.status==="approval");
+  const banner=pend?'<div class="vd-banner"><span class="t">⚠ 等待审批</span><span class="a mono">'+esc(pend.args)+'</span><span class="sp"></span>'+
+    '<button class="btn btn-ghost" data-approve="'+pend.id+'" data-outcome="deny">拒绝</button>'+
+    '<button class="btn" data-approve="'+pend.id+'" data-outcome="always">加白名单</button>'+
+    '<button class="btn btn-primary" data-approve="'+pend.id+'" data-outcome="once">允许一次</button></div>':"";
+  return '<div class="vd">'+
+    '<header class="vd-top"><span class="vd-title">'+esc(SESSION.title)+'<span class="vd-caret">▾</span></span>'+
+    '<span class="vd-right"><button class="btn btn-ghost" data-abort>■ Abort</button><span class="chip">'+SESSION.model+'</span><span class="vd-usage mono">'+SESSION.usage+"</span></span></header>"+
+    '<div class="vd-scroll" data-scroll><div class="vd-col">'+list+"</div></div>"+banner+
+    '<div class="vd-compose-zone"><div class="vd-queuechip">⏸ Follow-up ×1 — '+esc(q.text)+'</div>'+
+    '<div class="vd-pill"><textarea rows="1" placeholder="插话 (Steer)…"></textarea><button class="vd-send" title="Steer 发送">↑</button></div></div></div>';
+}};
+/* ---------- E · Claude Code 终端 ---------- */
+function approvalE(e){
+  return '<div class="ve-tool" data-status="approval">'+
+    '<div class="ve-tline"><span class="ve-dot">⏺</span><span class="ve-tname">'+e.tool+'</span><span class="ve-dim">(</span><span class="ve-targs">'+esc(e.args)+'</span><span class="ve-dim">)</span><span class="ve-tmeta">'+esc(e.meta||"")+"</span></div>"+
+    '<div class="ve-approve">'+
+      '<div class="ve-alabel">Bash command</div>'+
+      '<div class="ve-abox">'+esc(e.args)+"</div>"+
+      '<div class="ve-aq">要执行吗?</div>'+
+      '<button class="ve-opt" data-approve="'+e.id+'" data-outcome="once"><span class="ve-cur">❯</span><span class="ve-num">1.</span> Yes,允许执行</button>'+
+      '<button class="ve-opt" data-approve="'+e.id+'" data-outcome="always"><span class="ve-cur">❯</span><span class="ve-num">2.</span> Yes,本会话不再询问(加入白名单)</button>'+
+      '<button class="ve-opt" data-approve="'+e.id+'" data-outcome="deny"><span class="ve-cur">❯</span><span class="ve-num">3.</span> No,并告诉 Agent 换个做法</button>'+
+      '<div class="ve-ahint">按 1 / 2 / 3 或点击 · 拒绝后 Agent 收到工具错误并自行调整</div>'+
+    "</div></div>";
+}
+function toolE(e){
+  if(e.status==="approval")return approvalE(e);
+  const open=expanded.has(e.id);
+  const dot=e.status==="running"?'<span class="ve-dot spin">✻</span>':'<span class="ve-dot">⏺</span>';
+  const head=dot+'<span class="ve-tname">'+e.tool+'</span><span class="ve-dim">(</span><span class="ve-targs" title="'+esc(e.args)+'">'+esc(e.args)+'</span><span class="ve-dim">)</span>'+
+    (e.meta?'<span class="ve-tmeta">'+esc(e.meta)+"</span>":"");
+  let res;
+  if(e.status==="running")res='Running…<span class="cursor"></span>';
+  else if(e.status==="denied")res=esc(e.output||"用户拒绝执行");
+  else if(e.output){
+    const lines=e.output.split("\n");
+    res=open?toolOut(e):esc(lines.slice(0,2).join("\n"))+(lines.length>2?"\n… +"+(lines.length-2)+" 行(点击展开)":"");
+  }else res="Done";
+  return '<div class="ve-tool" data-expand="'+e.id+'" data-status="'+e.status+'">'+
+    '<div class="ve-tline">'+head+"</div>"+
+    '<div class="ve-res"><span class="ve-g">⎿</span><span class="ve-resbody">'+res+"</span></div></div>";
+}
+function entryE(e){
+  if(e.kind==="user")return '<div class="ve-user"><span class="ve-up">&gt;</span> '+esc(e.text)+"</div>";
+  if(e.kind==="thinking")return '<div class="ve-think"><div class="ve-thh"><span class="ve-dot">✻</span> 思考了 '+e.dur+" · "+e.tok+' tokens</div>'+esc(e.text)+"</div>";
+  if(e.kind==="assistant")return '<div class="ve-asst">'+md(e.text)+"</div>";
+  if(e.kind==="tool")return toolE(e);
+  return "";
+}
+const VE={key:"e",name:"Claude Code 终端",html(){
+  const list=ENTRIES.filter(e=>!e.queued).map(entryE).join("");
+  return '<div class="ve">'+
+    '<div class="ve-scroll" data-scroll><div class="ve-t">'+
+      '<div class="ve-welcome"><div class="ve-w1">✻ Super Agent</div><div class="ve-w2">'+esc(SESSION.title)+'</div>'+
+      '<div class="ve-w3">/help for help</div><div class="ve-w3">cwd: data/workspaces/admin · '+SESSION.model+" · thinking: "+SESSION.thinking+"</div></div>"+list+
+    "</div></div>"+
+    '<div class="ve-bottom"><div class="ve-bwrap">'+
+      '<div class="ve-status"><span class="ve-dot spin">✻</span><span>执行中…</span><button class="ve-sthint" data-abort>(esc 中断 · 23s · ↓ 1.8k tokens)</button><span class="ve-sp"></span><span class="ve-tok">本次运行 '+SESSION.usage+" tokens</span></div>"+
+      '<div class="ve-box"><span class="ve-caret">&gt;</span><input class="ve-input" placeholder="插话 (Steer) — Enter 发送"></div>'+
+      '<div class="ve-hints"><span>⏸ Follow-up ×1 排队中 · 运行结束后自动开始 Turn 2</span><span>? 快捷键 · ⌂ data/workspaces/admin</span></div>'+
+    "</div></div></div>";
+}};
+/* ---------- 切换器与装配 ---------- */
+const VARIANTS=[VA,VB,VC,VD,VE];
+function switcherHtml(){
+  const v=VARIANTS.find(x=>x.key===current);
+  return '<div class="switcher" role="toolbar" aria-label="变体切换">'+
+    '<span class="proto-tag">UI 原型</span>'+
+    '<button data-nav="prev" title="上一个变体 (←)">◀</button>'+
+    '<span class="vlabel">'+current.toUpperCase()+" · "+v.name+"</span>"+
+    '<button data-nav="next" title="下一个变体 (→)">▶</button></div>';
+}
+function render(){
+  const v=VARIANTS.find(x=>x.key===current)||VARIANTS[0];
+  const prev=app.querySelector("[data-scroll]");
+  const prevTop=prev?prev.scrollTop:null;
+  const changed=lastRendered!==v.key;
+  app.innerHTML=v.html()+switcherHtml();
+  const sc=app.querySelector("[data-scroll]");
+  if(sc){ if(changed)sc.scrollTop=sc.scrollHeight; else if(prevTop!=null)sc.scrollTop=prevTop; }
+  lastRendered=v.key;
+}
+function cycle(dir){
+  const i=VARIANTS.findIndex(v=>v.key===current);
+  current=VARIANTS[(i+dir+VARIANTS.length)%VARIANTS.length].key;
+  try{history.replaceState(null,"","?variant="+current)}catch(_){}
+  render();
+}
+function resolveApproval(id,outcome){
+  const e=byId(id);if(!e)return;
+  if(outcome==="deny"){e.status="denied";e.meta="已拒绝";e.output="// 用户拒绝了执行"}
+  else{
+    e.status="running";
+    e.meta=(outcome==="always"?"已加入白名单 · ":"")+"执行中";
+    if(outcome==="always")e.whitelisted=true;
+    render();
+    setTimeout(function(){
+      if(e.status==="running"){e.status="ok";e.meta=(e.whitelisted?"已加入白名单 · ":"")+"exit 0";e.output="Successfully installed pytest-timeout-2.3.1";render()}
+    },900);
+  }
+  render();
+}
+function refreshInspector(){
+  const insp=document.getElementById("vc-insp");
+  if(insp)insp.innerHTML=inspectorC();
+}
+app.addEventListener("click",function(ev){
+  const t=ev.target;
+  const nav=t.closest("[data-nav]");
+  if(nav){cycle(nav.dataset.nav==="next"?1:-1);return}
+  const ap=t.closest("[data-approve]");
+  if(ap){resolveApproval(ap.dataset.approve,ap.dataset.outcome);return}
+  if(t.closest("[data-abort]")){return} /* 视觉占位:真实实现中发送 abort 命令 */
+  const nd=t.closest("[data-node]");
+  if(nd){selected=nd.dataset.node;refreshInspector();return}
+  const ex=t.closest("[data-expand]");
+  if(ex){const id=ex.dataset.expand;expanded.has(id)?expanded.delete(id):expanded.add(id);render()}
+});
+document.addEventListener("keydown",function(ev){
+  const t=ev.target;
+  const typing=t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.isContentEditable);
+  if(!typing&&current==="e"){
+    const pend=ENTRIES.find(function(x){return x.status==="approval"});
+    if(pend&&(ev.key==="1"||ev.key==="2"||ev.key==="3")){
+      resolveApproval(pend.id,{"1":"once","2":"always","3":"deny"}[ev.key]);
+      ev.preventDefault();return;
+    }
+  }
+  if(ev.key!=="ArrowLeft"&&ev.key!=="ArrowRight")return;
+  if(typing)return;
+  cycle(ev.key==="ArrowRight"?1:-1);
+});
+(function boot(){
+  const p=(new URLSearchParams(location.search)).get("variant")||"a";
+  current=(p.charAt(0)||"a").toLowerCase();
+  if(!VARIANTS.some(function(v){return v.key===current}))current="a";
+  render();
+})();
+</script>

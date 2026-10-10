@@ -1,0 +1,30 @@
+[project]
+name = "super-agent"
+version = "0.1.0"
+description = "Super Agent 后端——仿照 pi 架构的通用任务 Agent"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    "httpx>=0.27",
+    "anthropic>=1.12.0",
+    "mcp>=2.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/super_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

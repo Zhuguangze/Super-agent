@@ -1,0 +1,63 @@
+/* Super Agent 设计系统——完整移植 frontend-pages-prototype.html 的 tokens 与共享组件类。
+   页面/组件的 scoped 样式基于这里的变量；--accent-soft 等由主题统一供给。 */
+
+:root{
+  --ground:#EDEFF1; --surface:#FFFFFF; --surface2:#F5F6F8;
+  --ink:#191D21; --ink2:#5A6470; --ink3:#8A94A0;
+  --line:#D9DDE2; --line2:#E7EAEE;
+  --accent:#0E7490; --accent-soft:#E1EFF3; --on-accent:#FFFFFF;
+  --error:#B3261E; --error-soft:#F9E5E3;
+  --warn:#96590A; --warn-soft:#F7EDD9;
+  --shadow:0 12px 32px rgba(16,20,26,.16);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --ground:#101318; --surface:#181D24; --surface2:#1F262F;
+  --ink:#E7EAEE; --ink2:#9AA4B0; --ink3:#69737F;
+  --line:#2A323D; --line2:#222933;
+  --accent:#45C4D8; --accent-soft:#14333C; --on-accent:#062A33;
+  --error:#F0716C; --error-soft:#3A2124;
+  --warn:#E8B14A; --warn-soft:#3A2F1B;
+  --shadow:0 12px 32px rgba(0,0,0,.5);
+}}
+:root[data-theme="dark"]{
+  --ground:#101318; --surface:#181D24; --surface2:#1F262F;
+  --ink:#E7EAEE; --ink2:#9AA4B0; --ink3:#69737F;
+  --line:#2A323D; --line2:#222933;
+  --accent:#45C4D8; --accent-soft:#14333C; --on-accent:#062A33;
+  --error:#F0716C; --error-soft:#3A2124;
+  --warn:#E8B14A; --warn-soft:#3A2F1B;
+  --shadow:0 12px 32px rgba(0,0,0,.5);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ground); color:var(--ink); overflow:hidden;
+  font:14px/1.6 "IBM Plex Sans","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+}
+#app{height:100dvh}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;font-variant-numeric:tabular-nums}
+
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
+input,textarea,select{font:inherit;color:inherit}
+pre{margin:0}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:6px 14px;font-size:13px;font-weight:500;transition:border-color .15s,background .15s}
+.btn:hover{border-color:var(--ink3)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{border-color:var(--accent);filter:brightness(1.06)}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.btn-ghost{background:transparent;border-color:transparent;color:var(--ink2)}
+.btn-ghost:hover{border-color:var(--line);color:var(--ink)}
+
+.chip{display:inline-flex;align-items:center;gap:5px;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11px;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:2px 9px;background:var(--surface);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tmeta{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.pulse{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 5px var(--accent-soft)}}
+
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+.toast{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--ground);padding:8px 16px;border-radius:999px;font-size:12.5px;z-index:1100;box-shadow:var(--shadow)}

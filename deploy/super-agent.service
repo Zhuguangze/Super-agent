@@ -1,0 +1,22 @@
+# systemd 单元（docker-compose 的替代方案，ticket 15）
+# 安装：sudo cp deploy/super-agent.service /etc/systemd/system/
+#       sudo systemctl daemon-reload && sudo systemctl enable --now super-agent
+[Unit]
+Description=Super Agent backend (FastAPI + uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 按部署机实际情况修改用户/路径/venv
+User=superagent
+WorkingDirectory=/opt/super-agent/backend
+Environment=SUPER_AGENT_DATA=/opt/super-agent/data
+EnvironmentFile=/opt/super-agent/data/.env
+ExecStart=/opt/super-agent/backend/.venv/bin/uvicorn super_agent.server.main:app --host 0.0.0.0 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=3
+# 并发上限在 settings.json 的 max_concurrency 配置（默认 4）
+
+[Install]
+WantedBy=multi-user.target
