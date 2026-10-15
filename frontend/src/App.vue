@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue'
-import { RouterView } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import HealthBadge from '@/components/HealthBadge.vue'
 import ConnectionBadge from '@/components/ConnectionBadge.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -10,6 +10,7 @@ import { useConnectionStore } from '@/stores/connection'
 const auth = useAuthStore()
 const connection = useConnectionStore()
 const chat = useChatStore()
+const route = useRoute()
 
 function connectWith(token: string): void {
   connection.ensureConnected(token)
@@ -35,7 +36,8 @@ watch(
 
 <template>
   <div class="app-shell">
-    <header class="app-header">
+    <!-- /home 自带 Dataphin 风格导航，隐藏全局头部避免双栏 -->
+    <header v-if="route.name !== 'home'" class="app-header">
       <span class="brand">Super Agent</span>
       <div class="header-badges">
         <HealthBadge />

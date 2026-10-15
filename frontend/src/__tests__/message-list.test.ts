@@ -21,6 +21,69 @@ describe('MessageList（工作台 wk 风格）', () => {
     expect(wrapper.find('.wk-user').text()).toBe('**原样**显示')
   })
 
+  it('用户图片（票 03）：缩略图网格 + lightbox 打开/关闭', async () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'u1',
+            role: 'user',
+            text: '看这两张图',
+            thinking: '',
+            status: 'done',
+            images: [
+              { media_type: 'image/png', data: 'aGk=' },
+              { media_type: 'image/jpeg', data: 'aGk=' },
+            ],
+          },
+        ],
+      },
+    })
+    const imgs = wrapper.findAll('.user-images img')
+    expect(imgs).toHaveLength(2)
+    expect(imgs[0]!.attributes('src')).toBe('data:image/png;base64,aGk=')
+
+    await imgs[0]!.trigger('click')
+    expect(wrapper.find('.img-lightbox').exists()).toBe(true)
+    expect(wrapper.find('.img-lightbox img').attributes('src')).toBe('data:image/png;base64,aGk=')
+    await wrapper.find('.img-lightbox').trigger('click')
+    expect(wrapper.find('.img-lightbox').exists()).toBe(false)
+  })
+
+  it('纯图消息：无文字时不出文本气泡,图片照常渲染', () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'u2',
+            role: 'user',
+            text: '',
+            thinking: '',
+            status: 'done',
+            images: [{ media_type: 'image/png', data: 'aGk=' }],
+          },
+        ],
+      },
+    })
+    expect(wrapper.find('.wk-user').exists()).toBe(false)
+    expect(wrapper.findAll('.user-images img')).toHaveLength(1)
+  })
+
+  it('专家聊天背景（票：专家身份背景图）:bgImage 自适应铺满(cover + 底部锚点),缺省无背景', () => {
+    const withBg = mount(MessageList, {
+      props: { messages: [], bgImage: '/experts/expert-rd.png' },
+    })
+    const style = (withBg.find('.wk-list-wrap').element as HTMLElement).style
+    expect(style.backgroundImage).toContain('expert-rd.png')
+    expect(style.backgroundSize).toBe('cover')
+    expect(style.backgroundPosition).toBe('center bottom')
+    expect(style.backgroundRepeat).toBe('no-repeat')
+
+    const withoutBg = mount(MessageList, { props: { messages: [] } })
+    const style2 = (withoutBg.find('.wk-list-wrap').element as HTMLElement).style
+    expect(style2.backgroundImage).toBe('')
+  })
+
   it('流式且无正文显示占位，aborted 显示标记', () => {
     const wrapper = mount(MessageList, {
       props: {

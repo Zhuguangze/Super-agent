@@ -19,11 +19,14 @@ BeforeToolCallHook = Callable[[str, dict, str], Awaitable[str | None]]
 
 
 class PendingApproval:
-    def __init__(self, approval_id: str, user_id: int, name: str, params: dict) -> None:
+    def __init__(
+        self, approval_id: str, user_id: int, name: str, params: dict, session_id: str | None = None
+    ) -> None:
         self.id = approval_id
         self.user_id = user_id
         self.name = name
         self.params = params
+        self.session_id = session_id  # ADR-0005：并发会话下审批的归属
         self.future: asyncio.Future[bool] | None = None
 
 
@@ -78,6 +81,7 @@ def make_approval_hook(
     service: ApprovalService,
     *,
     user_id: int,
+    session_id: str | None = None,
     on_event: Callable[[dict], Awaitable[None]],
 ) -> BeforeToolCallHook:
     """生成挂进 Hooks 的 before_tool_call 钩子：白名单放行，否则走审批流。"""
@@ -86,7 +90,7 @@ def make_approval_hook(
         if service.is_allowed(name):
             return None
         approval_id = f"apr_{uuid4().hex[:12]}"
-        pending = PendingApproval(approval_id, user_id, name, params)
+        pending = PendingApproval(approval_id, user_id, name, params, session_id)
         pending.future = asyncio.get_running_loop().create_future()
         service._pending[approval_id] = pending
         await on_event(
@@ -95,6 +99,7 @@ def make_approval_hook(
                 "approval_id": approval_id,
                 "tool": name,
                 "params": params,
+                **({"session_id": session_id} if session_id else {}),
             }
         )
         try:
@@ -115,4 +120,5 @@ def approval_request_payload(pending: PendingApproval) -> dict:
         "approval_id": pending.id,
         "tool": pending.name,
         "params": pending.params,
+        **({"session_id": pending.session_id} if pending.session_id else {}),
     }

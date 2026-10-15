@@ -39,7 +39,7 @@ async function mountAt(path: string) {
   return wrapper
 }
 
-// Seam F3：登录——表单提交 → 跳转主界面；未登录访问被守卫重定向
+// Seam F3：登录——表单提交 → 跳转首页（home）；未登录访问被守卫重定向
 describe('Seam F3：登录', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -49,7 +49,7 @@ describe('Seam F3：登录', () => {
     document.body.innerHTML = ''
   })
 
-  it('登录成功：token 落 localStorage 并跳转主界面', async () => {
+  it('登录成功：token 落 localStorage 并跳转首页', async () => {
     stubFetch(credentialsHandler(true))
     const wrapper = await mountAt('/login')
 
@@ -58,7 +58,7 @@ describe('Seam F3：登录', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(router.currentRoute.value.path).toBe('/')
+    expect(router.currentRoute.value.path).toBe('/home')
     expect(localStorage.getItem('super_agent_token')).toBe('test-token-1')
   })
 
@@ -91,7 +91,7 @@ describe('Seam F3：登录', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(router.currentRoute.value.path).toBe('/')
+    expect(router.currentRoute.value.path).toBe('/home')
     expect(localStorage.getItem('super_agent_token')).toBe('test-token-1')
   })
 })

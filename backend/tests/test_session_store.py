@@ -2,7 +2,7 @@
 
 import json
 
-from super_agent.ai.types import Message, TextBlock, ThinkingBlock, ToolResultBlock, Usage
+from super_agent.ai.types import ImageBlock, Message, TextBlock, ThinkingBlock, ToolResultBlock, Usage
 from super_agent.app.session_store import SessionStore
 
 
@@ -315,6 +315,32 @@ def test_tool_result_blocks_round_trip(tmp_path) -> None:
     old = store.replay_messages(1, sid)[-1]
     assert old.content[0].content == "纯文本"
     assert old.content[0].blocks is None
+
+
+# ---- 票 01：用户消息的 image 块（多模态输入）----
+
+
+def test_user_image_block_round_trip(tmp_path) -> None:
+    """带 ImageBlock 的用户消息落盘与回读无损；旧格式未知块仍被丢弃（存量兼容不变）。"""
+    store = _store(tmp_path)
+    sid = store.create_session(1)
+    store.append_message(
+        1,
+        sid,
+        Message(
+            role="user",
+            content=[TextBlock("看这张图"), ImageBlock(media_type="image/png", data="aGk=")],
+        ),
+    )
+
+    entries = store.read_entries(1, sid)
+    assert entries[0]["message"]["content"] == [
+        {"type": "text", "text": "看这张图"},
+        {"type": "image", "media_type": "image/png", "data": "aGk="},
+    ]
+    replayed = store.replay_messages(1, sid)
+    assert replayed[0].content[0] == TextBlock("看这张图")
+    assert replayed[0].content[1] == ImageBlock(media_type="image/png", data="aGk=")
 
 
 # ---- 重命名 / 置顶（header 元数据） ----

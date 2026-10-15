@@ -27,11 +27,12 @@ def rest_router(service: AuthService, sessions, chat=None, settings_store=None, 
     @router.get("/api/sessions")
     def list_sessions(request: Request) -> dict:
         user = _require_user(request)
-        running_sid = None
-        if chat is not None:
-            handle = getattr(request.app.state, "runs", {}).get(user.id)
-            if handle is not None and not handle.task.done():
-                running_sid = getattr(handle, "session_id", None)
+        runs = getattr(request.app.state, "runs", {})
+
+        def _running(session_id: str) -> bool:
+            handle = runs.get((user.id, session_id))
+            return handle is not None and handle.task.done() is False
+
         return {
             "sessions": [
                 {
@@ -41,7 +42,7 @@ def rest_router(service: AuthService, sessions, chat=None, settings_store=None, 
                     "msg_count": meta.msg_count,
                     "total_tokens": meta.total_tokens,
                     "pinned": meta.pinned,
-                    "running": meta.id == running_sid,
+                    "running": _running(meta.id),
                 }
                 for meta in sessions.list_sessions(user.id)
             ]
@@ -88,6 +89,11 @@ def rest_router(service: AuthService, sessions, chat=None, settings_store=None, 
     @router.delete("/api/sessions/{session_id}")
     def delete_session(session_id: str, request: Request) -> dict:
         user = _require_user(request)
+        # 运行中的会话先定点中止其 run（ADR-0005）：防止向已删除的 JSONL 继续写入
+        handle = getattr(request.app.state, "runs", {}).get((user.id, session_id))
+        if handle is not None and handle.task.done() is False:
+            handle.task.cancel()
+        getattr(request.app.state, "runs", {}).pop((user.id, session_id), None)
         deleted = sessions.delete_session(user.id, session_id)
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")

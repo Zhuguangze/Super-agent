@@ -25,6 +25,7 @@ from super_agent.ai.provider import (
     ProviderError,
 )
 from super_agent.ai.types import (
+    ImageBlock,
     Message,
     MessageEnd,
     MessageStart,
@@ -334,10 +335,12 @@ class ChatService:
         """WS 未知命令回落到全局扩展注册的命令；未注册返回 None。"""
         return await self._global_ext.run_command(name, payload)
 
-    def _system_prompt(self, user_id: int) -> str:
+    def _system_prompt(self, user_id: int, expert: str | None = None) -> str:
         """系统提示 = 基座 + 今天日期 + 该用户的记忆索引 + 工作区约定（均截断，ticket 11）。
 
         日期精确到日：模型不用为"现在几点/今天几号"跑 date；缓存只跨天失效一次。
+        expert（专家模式）：以独立小节追加人格，随每轮消息由前端携带——
+        同一会话内文本不变，不破坏 prompt 缓存。
         """
         parts = [SYSTEM_PROMPT, f"Today is {datetime.now():%Y-%m-%d}."]
         if self._memory_root is not None:
@@ -357,6 +360,13 @@ class ChatService:
         skills = self._skills_for(user_id)
         if skills:
             parts.append(skills_index_text(skills))
+        if expert:
+            parts.append(
+                "## 当前专家身份\n"
+                f"{expert}\n"
+                "以该身份与用户交流：介绍自己时忠实于上述身份与能力范围；"
+                "执行任务时保持该领域专家的口吻与视角。"
+            )
         return "\n\n".join(parts)
 
     async def run_prompt(
@@ -370,15 +380,31 @@ class ChatService:
         effort: Effort = DEFAULT_EFFORT,
         steer_queue: asyncio.Queue[str] | None = None,
         skill: str | None = None,
+        expert: str | None = None,
+        hidden: bool = False,
+        images: list[dict] | None = None,
     ) -> None:
         """驱动一次 Agent Loop；结束后队列剩余按 Follow-up 语义自动续跑。
 
         skill（Claude Code 式手动选择）：正文注入该 run 的每条用户消息——
         确定性生效，不依赖模型自觉 load_skill。每轮结束检查真实 input_tokens，
         接近窗口上限即自动压缩（ticket 10）。
-        并发上限（ticket 15）：超过 max_concurrency 的 run 在信号量上排队。
+        expert（专家模式）：注入该 run 的 system prompt，人格跨轮持续。
+        hidden：触发词不入库（仅首轮生效；Follow-up 是用户真实插话，正常落盘）。
+        images（多模态）：随首条用户消息进入上下文的图片块（扁平字典，票 24 形状）；
+        Follow-up 插话为纯文本。
+        并发上限（ticket 15 / ADR-0005）：多个会话的 run 可并行；超出 max_concurrency
+        的 run 在信号量上排队。
         """
+        # ADR-0005：本 run 的所有下行事件统一携带 session_id（单连接多路复用的路由前提）
+        if session_id is not None:
+            base_on_event = on_event
+
+            async def on_event(ev: dict) -> None:
+                await base_on_event({**ev, "session_id": session_id})
+
         async with self._loop_sem:
+            first = True
             while True:
                 usage = await self._run_single(
                     text,
@@ -389,7 +415,11 @@ class ChatService:
                     effort=effort,
                     steer_queue=steer_queue,
                     skill=skill,
+                    expert=expert,
+                    hidden=hidden and first,
+                    images=images if first else None,
                 )
+                first = False
                 if (
                     usage is not None
                     and session_id is not None
@@ -514,6 +544,9 @@ class ChatService:
         effort: Effort,
         steer_queue: asyncio.Queue[str] | None,
         skill: str | None = None,
+        expert: str | None = None,
+        hidden: bool = False,
+        images: list[dict] | None = None,
     ) -> None:
         state = _RunState()
         state.ext = self._ext_manager_for(user_id)
@@ -560,9 +593,23 @@ class ChatService:
                 )
                 return None
 
-        user_message = Message(role="user", content=[TextBlock(text)])
+        # 多模态：图片块随首条用户消息进入上下文；纯图消息允许空文本
+        content: list[ContentBlock] = []
+        if text:
+            content.append(TextBlock(text))
+        for im in images or []:
+            content.append(
+                ImageBlock(
+                    media_type=str(im.get("media_type", "")),
+                    data=str(im.get("data", "")),
+                )
+            )
+        user_message = Message(role="user", content=content)
         history = self._replay(user_id, session_id) if session_id else []
-        self._append_entry(user_id, session_id, user_message)
+        # hidden（专家开场触发词）：只进本轮模型上下文，不入库——
+        # 回放时模型的开场自我介绍就是会话的第一条消息，触发词不留痕
+        if not hidden:
+            self._append_entry(user_id, session_id, user_message)
 
         async def handle(ev: object) -> None:
             await self._on_loop_event(ev, state, on_event, user_id, session_id)
@@ -571,7 +618,12 @@ class ChatService:
         if self._approval is not None:
             # ADR-0001：审批以内置 before_tool_call 钩子落地（白名单放行，否则挂起等待）
             hooks.on_before_tool_call(
-                make_approval_hook(self._approval, user_id=user_id, on_event=on_event)
+                make_approval_hook(
+                    self._approval,
+                    user_id=user_id,
+                    session_id=session_id,
+                    on_event=on_event,
+                )
             )
         if state.ext.has_tool_call_hooks():
             # 扩展 tool_call 钩子：返回 str 拦截，或就地修改 params dict（ticket 12）
@@ -593,7 +645,7 @@ class ChatService:
                 self._tools_for(user_id, state.ext),
                 context,
                 handle,
-                system=self._system_prompt(user_id),
+                system=self._system_prompt(user_id, expert=expert),
                 effort=effort,
                 hooks=hooks,
                 steer_queue=steer_queue,
@@ -608,6 +660,12 @@ class ChatService:
                         "stop_reason": "aborted",
                         "usage": None,
                     }
+                )
+            else:
+                # ADR-0005：模型尚未产出就被取消(删除运行中会话/定点 abort)——
+                # 也要给前端一个收尾事件,否则该会话的运行态永远挂起
+                await on_event(
+                    {"type": "agent_end", "stop_reason": "aborted", "usage": {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}}
                 )
             self._append_entry(
                 user_id, session_id, Message(role="assistant", content=state.partial),

@@ -125,8 +125,9 @@ async def test_abort_emits_message_end_then_raises() -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    # 闸门未开：message_start 都没发过，abort 不应凭空补收尾事件
-    assert [e["type"] for e in sent] == ["agent_start", "turn_start"]
+    # 闸门未开：模型未产出,abort 补一个 agent_end 收尾(ADR-0005:前端运行态需要明确关闭)
+    assert [e["type"] for e in sent] == ["agent_start", "turn_start", "agent_end"]
+    assert sent[-1]["stop_reason"] == "aborted"
 
 
 async def test_abort_mid_stream_emits_aborted_end() -> None:
@@ -287,8 +288,14 @@ async def test_tool_round_emits_tool_events_and_persists(tmp_path) -> None:
         "tool_call_id": "t1",
         "name": "echo",
         "params": {"text": "hi"},
+        "session_id": sid,
     }
-    assert sent[6] == {"type": "tool_execution_update", "tool_call_id": "t1", "delta": "处理中…"}
+    assert sent[6] == {
+        "type": "tool_execution_update",
+        "tool_call_id": "t1",
+        "delta": "处理中…",
+        "session_id": sid,
+    }
     assert sent[7]["tool_call_id"] == "t1"
     assert sent[7]["content"] == "echo: hi"
     assert sent[7]["is_error"] is False
@@ -336,8 +343,11 @@ async def test_followup_reruns_after_loop_ends(tmp_path) -> None:
         "hi", user_id=1, session_id=sid, on_event=_collector(sent), steer_queue=queue
     )
 
-    # 续跑前先清零队列事件
-    assert {"type": "queue_update", "pending": 0} in sent
+    # 续跑前先清零队列事件（事件现在携带 session_id，ADR-0005）
+    assert any(
+        e["type"] == "queue_update" and e["pending"] == 0 and e.get("session_id") == sid
+        for e in sent
+    )
     # 第二次 run 是完整的新 agent run，上下文 = 重放 + follow-up 消息
     assert [m.text() for m in provider.contexts[1]] == ["hi", "第一答", "接着来"]
     assert [e["type"] for e in sent].count("agent_end") == 2

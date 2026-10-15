@@ -14,7 +14,7 @@ from super_agent.ai.provider import (
 )
 from super_agent.ai.providers.multi import MultiProvider
 from super_agent.ai.providers.openai_compat import OpenAICompatProvider
-from super_agent.ai.types import Message, TextBlock, ToolDef, ToolResultBlock, ToolUseBlock
+from super_agent.ai.types import ImageBlock, Message, TextBlock, ToolDef, ToolResultBlock, ToolUseBlock
 
 BASE = "http://model.local/v1"
 
@@ -175,3 +175,23 @@ async def test_multi_unknown_model_errors() -> None:
     with pytest.raises(ProviderError, match="未知模型"):
         async for _ in multi.stream([Message(role="user", content=[TextBlock("x")])], "ghost", effort="high"):
             pass
+
+
+async def test_user_message_with_images_uses_content_parts() -> None:
+    """票 01：含 ImageBlock 的用户消息 → OpenAI content parts（image_url data-URI）；纯文本保持字符串。"""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.read())
+        return _sse_response([_delta_chunk({"content": "ok"}, "stop")])
+
+    messages = [
+        Message(role="user", content=[TextBlock("看这张图"), ImageBlock(media_type="image/png", data="aGk=")]),
+    ]
+    async for _ in _provider(handler).stream(messages, "my-model"):
+        pass
+
+    assert captured["body"]["messages"][0]["content"] == [
+        {"type": "text", "text": "看这张图"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}},
+    ]

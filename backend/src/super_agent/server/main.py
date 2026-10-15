@@ -73,7 +73,7 @@ def create_app(
     # ADR-0001：白名单从 settings.json 加载，默认文件工具免审批、bash 需审批
     approval = ApprovalService(allowlist=settings.load_allowlist() or set(DEFAULT_ALLOWLIST))
     app.state.approval = approval
-    app.state.runs = {}  # user_id → RunHandle（run 生命周期独立于单条 WS 连接）
+    app.state.runs = {}  # (user_id, session_id) → RunHandle（多会话并发，run 生命周期独立于单条 WS 连接）
     # 模型路由：全部来自 settings.json 的 custom_models（Settings 添加，动态注册）——
     # 代码不预置任何模型；Settings 热更经 multi.rebind_custom_models 生效
     multi = MultiProvider()

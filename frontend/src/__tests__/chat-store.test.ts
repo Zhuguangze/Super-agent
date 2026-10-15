@@ -12,8 +12,9 @@ beforeEach(() => {
 describe('chat store：流式事件累积', () => {
   it('message_start/update/end 组装出一条 assistant 消息', () => {
     const chat = useChatStore()
-    chat.running = true
-    chat.handleEvent({ type: 'message_start', msg_id: 'm1', role: 'assistant' })
+    chat.currentSessionId = 's1'
+    chat.runningBySession['s1'] = true
+    chat.handleEvent({ type: 'message_start', msg_id: 'm1', role: 'assistant', session_id: 's1' })
     chat.handleEvent({ type: 'message_update', msg_id: 'm1', delta: { type: 'text', text: '你' } })
     chat.handleEvent({ type: 'message_update', msg_id: 'm1', delta: { type: 'text', text: '好' } })
     chat.handleEvent({
@@ -28,14 +29,16 @@ describe('chat store：流式事件累积', () => {
     expect(chat.messages[0]!.usage?.output_tokens).toBe(2)
   })
 
-  it('thinking 增量进入 thinking 字段，不混入正文', () => {
+  it('thinking 增量进入 thinking 字段，不混入正文', async () => {
     const chat = useChatStore()
     chat.handleEvent({ type: 'message_start', msg_id: 'm1', role: 'assistant' })
     chat.handleEvent({ type: 'message_update', msg_id: 'm1', delta: { type: 'thinking', text: '想想' } })
     chat.handleEvent({ type: 'message_update', msg_id: 'm1', delta: { type: 'text', text: '答案' } })
-
-    expect(chat.messages[0]!.thinking).toBe('想想')
-    expect(chat.messages[0]!.text).toBe('答案')
+    await vi.waitFor(() => {
+      // delta 合帧（切换卡顿优化）：批量应用后可见
+      expect(chat.messages[0]!.thinking).toBe('想想')
+      expect(chat.messages[0]!.text).toBe('答案')
+    })
   })
 
   it('stop_reason=aborted 把消息标记为 aborted', () => {
@@ -135,20 +138,23 @@ describe('chat store：发送与错误', () => {
 describe('chat store：agent 相位与工具事件（ticket 05）', () => {
   it('多轮 run：turn 间 message_end 不关运行态，agent_end 才关', () => {
     const chat = useChatStore()
-    chat.running = true
-    chat.handleEvent({ type: 'message_end', msg_id: 'm1', stop_reason: 'tool_use', usage: null })
+    chat.currentSessionId = 's1'
+    chat.runningBySession['s1'] = true
+    chat.handleEvent({ type: 'message_end', msg_id: 'm1', stop_reason: 'tool_use', usage: null, session_id: 's1' })
     expect(chat.running).toBe(true)
     chat.handleEvent({
       type: 'agent_end',
       stop_reason: 'end_turn',
       usage: { input_tokens: 9, output_tokens: 6, cache_read_tokens: 0, cache_write_tokens: 0 },
+      session_id: 's1',
     })
     expect(chat.running).toBe(false)
   })
 
   it('abort 收尾（无 agent_end）也关运行态', () => {
     const chat = useChatStore()
-    chat.running = true
+    chat.currentSessionId = 's1'
+    chat.runningBySession['s1'] = true
     chat.handleEvent({ type: 'message_end', msg_id: 'm1', stop_reason: 'aborted', usage: null })
     expect(chat.running).toBe(false)
   })
@@ -228,7 +234,8 @@ describe('chat store：agent 相位与工具事件（ticket 05）', () => {
       const conn = useConnectionStore()
       conn.ensureConnected('tok')
       const chat = useChatStore()
-      chat.running = true
+      chat.currentSessionId = 's1'
+      chat.runningBySession['s1'] = true
       chat.sendPrompt('先等等')
       expect(chat.running).toBe(true)
       expect(chat.messages[chat.messages.length - 1]).toMatchObject({ role: 'user', text: '先等等' })

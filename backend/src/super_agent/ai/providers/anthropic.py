@@ -22,6 +22,7 @@ from super_agent.ai.provider import (
 )
 from super_agent.ai.types import (
     ContentBlock,
+    ImageBlock,
     Message,
     MessageEnd,
     MessageStart,
@@ -159,6 +160,12 @@ def _block_to_api(block: ContentBlock) -> dict:
         if block.is_error:
             out["is_error"] = True
         return out
+    if isinstance(block, ImageBlock):
+        # 票 01：用户消息多模态图片块 → API image source
+        return {
+            "type": "image",
+            "source": {"type": "base64", "media_type": block.media_type, "data": block.data},
+        }
     return {"type": "text", "text": block.text}
 
 

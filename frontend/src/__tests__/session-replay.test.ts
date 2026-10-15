@@ -143,7 +143,8 @@ describe('session_info 事件：连接即回放当前会话', () => {
 describe('branch 与会话管理（ticket 09）', () => {
   it('branch 把本地视图截到目标条目（含该条目）', () => {
     const chat = useChatStore()
-    chat.messages = [
+    chat.currentSessionId = 'sess-r'
+    chat.messagesBySession['sess-r'] = [
       { id: 'e1', entryId: 'e1', role: 'user', text: '第一问', thinking: '', status: 'done' },
       { id: 'e2', entryId: 'e2', role: 'assistant', text: '第一答', thinking: '', status: 'done' },
       { id: 'e3', entryId: 'e3', role: 'user', text: '第二问', thinking: '', status: 'done' },
@@ -154,7 +155,8 @@ describe('branch 与会话管理（ticket 09）', () => {
 
   it('branch 未知 entryId 不改动视图', () => {
     const chat = useChatStore()
-    chat.messages = [
+    chat.currentSessionId = 'sess-r'
+    chat.messagesBySession['sess-r'] = [
       { id: 'e1', entryId: 'e1', role: 'user', text: '唯一', thinking: '', status: 'done' },
     ]
     chat.branch('ghost')
@@ -251,7 +253,7 @@ describe('branch 与会话管理（ticket 09）', () => {
       useConnectionStore().ensureConnected('tok')
       const chat = useChatStore()
       chat.currentSessionId = 's1'
-      chat.messages = [{ id: 'm', role: 'user', text: 'x', thinking: '', status: 'done' }]
+      chat.messagesBySession['s1'] = [{ id: 'm', role: 'user', text: 'x', thinking: '', status: 'done' }]
       await chat.deleteSession('s1')
       expect(calls).toContain('DELETE')
       expect(chat.messages).toHaveLength(0)
@@ -353,7 +355,7 @@ describe('分支注记回放（票 17）', () => {
       useConnectionStore().ensureConnected('tok')
       const chat = useChatStore()
       chat.currentSessionId = 's1'
-      chat.messages = [{ id: 'x', role: 'user', text: '旧视图', thinking: '', status: 'done' }]
+      chat.messagesBySession['s1'] = [{ id: 'x', role: 'user', text: '旧视图', thinking: '', status: 'done' }]
       await chat.switchBranch('e3')
       expect(chat.messages.map((m) => m.text)).toEqual(['第一问', '换个问法'])
       const sent = FakeWebSocket.instances.flatMap((w) => w.sent)
@@ -391,5 +393,38 @@ describe('工具结果富块回放（票 24）', () => {
     const msgs = entriesToMessages(entries)
     const toolMsg = msgs.find((m) => m.role === 'tool')
     expect(toolMsg?.tool?.blocks).toEqual([{ type: 'image', media_type: 'image/png', data: 'aGk=' }])
+  })
+})
+
+// 票 03：用户消息图片块回放
+describe('用户图片回放（票 03）', () => {
+  it('entriesToMessages 把用户消息的顶层 image 块收进 images 字段', () => {
+    const entries: SessionEntry[] = [
+      {
+        type: 'message', id: 'u1', parentId: null, timestamp: 't',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: '看这张图' },
+            { type: 'image', media_type: 'image/png', data: 'aGk=' },
+          ],
+        },
+      },
+    ]
+    const msgs = entriesToMessages(entries)
+    expect(msgs[0]?.role).toBe('user')
+    expect(msgs[0]?.text).toBe('看这张图')
+    expect(msgs[0]?.images).toEqual([{ media_type: 'image/png', data: 'aGk=' }])
+  })
+
+  it('纯文本用户消息 images 为 undefined（不加空数组）', () => {
+    const entries: SessionEntry[] = [
+      {
+        type: 'message', id: 'u2', parentId: null, timestamp: 't',
+        message: { role: 'user', content: [{ type: 'text', text: '普通消息' }] },
+      },
+    ]
+    const msgs = entriesToMessages(entries)
+    expect(msgs[0]?.images).toBeUndefined()
   })
 })

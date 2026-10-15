@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { PendingApproval } from '@/stores/chat'
 
-const props = defineProps<{ approval: PendingApproval }>()
+const props = defineProps<{ approval: PendingApproval; sessionLabel?: string }>()
 const emit = defineEmits<{ decide: [allow: boolean] }>()
 
 const paramsText = computed(() => JSON.stringify(props.approval.params, null, 2))
@@ -12,6 +12,7 @@ const paramsText = computed(() => JSON.stringify(props.approval.params, null, 2)
   <div class="approval-mask" role="dialog" aria-modal="true">
     <div class="approval-dialog">
       <h3 class="approval-title">工具调用待确认</h3>
+      <p v-if="sessionLabel" class="approval-source">来自会话：{{ sessionLabel }}</p>
       <p class="approval-tool">
         Agent 请求执行 <code>{{ approval.tool }}</code>，请确认：
       </p>
@@ -48,6 +49,13 @@ const paramsText = computed(() => JSON.stringify(props.approval.params, null, 2)
 .approval-title {
   margin: 0 0 0.4rem;
   font-size: 1rem;
+}
+
+/* 来源会话标注（ADR-0005）：并发会话下审批可能来自后台会话 */
+.approval-source {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #6b7280);
 }
 
 .approval-tool {

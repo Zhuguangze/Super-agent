@@ -16,6 +16,7 @@ from pathlib import Path
 
 from super_agent.ai.types import (
     ContentBlock,
+    ImageBlock,
     Message,
     ThinkingBlock,
     TextBlock,
@@ -492,6 +493,10 @@ def _message_to_dict(message: Message) -> dict:
             if block.blocks:  # 票 23：富块（text/image）；存量条目无此键
                 entry["blocks"] = block.blocks
             blocks.append(entry)
+        elif isinstance(block, ImageBlock):
+            blocks.append(
+                {"type": "image", "media_type": block.media_type, "data": block.data}
+            )
     return {"role": message.role, "content": blocks}
 
 
@@ -516,6 +521,13 @@ def _message_from_dict(data: dict) -> Message | None:
                     content=block.get("content", ""),
                     is_error=bool(block.get("is_error", False)),
                     blocks=block.get("blocks"),
+                )
+            )
+        elif block.get("type") == "image":
+            blocks.append(
+                ImageBlock(
+                    media_type=str(block.get("media_type", "")),
+                    data=str(block.get("data", "")),
                 )
             )
     return Message(role=data.get("role", "user"), content=blocks)

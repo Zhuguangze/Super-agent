@@ -13,6 +13,7 @@ from super_agent.ai.provider import (
 )
 from super_agent.ai.providers.anthropic import AnthropicProvider
 from super_agent.ai.types import (
+    ImageBlock,
     Message,
     MessageEnd,
     MessageStart,
@@ -271,6 +272,28 @@ class FlakySdkClient:
                 return FakeSdkStream(_sdk_events(), _sdk_final())
 
         return _Messages()
+
+
+async def test_user_image_block_maps_to_api_image_source() -> None:
+    """票 01：用户消息的 ImageBlock → API image source（多模态输入）。"""
+    client = FakeSdkClient(stream=FakeSdkStream([], _sdk_final()))
+    messages = [
+        Message(
+            role="user",
+            content=[TextBlock("看这张图"), ImageBlock(media_type="image/png", data="aGk=")],
+        ),
+    ]
+
+    async def run():
+        return [ev async for ev in AnthropicProvider(client=client).stream(messages, "claude-opus-5")]
+
+    await run()
+    content = client.captured["messages"][-1]["content"]
+    assert content[0] == {"type": "text", "text": "看这张图"}
+    # 末条消息的末块会打 cache_control 断点（既有行为），图片块恰好是末块
+    assert content[1]["type"] == "image"
+    assert content[1]["source"] == {"type": "base64", "media_type": "image/png", "data": "aGk="}
+    assert content[1]["cache_control"] == {"type": "ephemeral"}
 
 
 async def test_tool_result_blocks_map_to_api_content_list() -> None:

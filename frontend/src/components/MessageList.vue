@@ -4,8 +4,23 @@ import type { ChatMessage } from '@/stores/chat'
 import { renderMarkdown } from '@/utils/markdown'
 import ToolCallCard from '@/components/ToolCallCard.vue'
 
-const props = defineProps<{ messages: ChatMessage[] }>()
+const props = defineProps<{ messages: ChatMessage[]; bgImage?: string }>()
 const emit = defineEmits<{ branch: [entryId: string]; 'switch-branch': [siblingId: string] }>()
+
+/* 用户图片 lightbox（票 03）：点击缩略图放大，点遮罩关闭 */
+const lightbox = ref<{ media_type: string; data: string } | null>(null)
+
+/* 专家聊天背景（票：专家身份背景图）：cover 随可视区域自适应铺满（无空带）,
+   底部锚点保留画面最丰富的一段;纱罩保证文字可读,颜色随明暗主题自适应 */
+const bgStyle = computed(() => {
+  if (!props.bgImage) return undefined
+  return {
+    backgroundImage: `linear-gradient(color-mix(in srgb, var(--surface) 75%, transparent), color-mix(in srgb, var(--surface) 75%, transparent)), url('${props.bgImage}')`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center bottom',
+    backgroundRepeat: 'no-repeat',
+  }
+})
 
 /* 分支切换 pager（票 17）：分叉点消息在兄弟分支间步进 */
 function prevSibling(msg: ChatMessage): string | undefined {
@@ -84,7 +99,7 @@ const anyThinkRow = computed(() => props.messages.some((m) => m.thinking))
 </script>
 
 <template>
-  <div class="wk-list-wrap">
+  <div class="wk-list-wrap" :style="bgStyle">
     <div ref="listEl" class="wk-scroll" data-scroll @scroll="onScroll">
     <div class="wk-col">
       <template v-for="msg in messages" :key="msg.id">
@@ -119,7 +134,20 @@ const anyThinkRow = computed(() => props.messages.some((m) => m.thinking))
               >›</button>
             </div>
           </div>
-          <div class="wk-user">{{ msg.text }}</div>
+          <!-- 用户图片（票 03）：缩略图网格 + 点击放大 -->
+          <div v-if="msg.images?.length" class="user-images">
+            <button
+              v-for="(img, i) in msg.images"
+              :key="i"
+              class="user-img"
+              type="button"
+              title="点击放大"
+              @click="lightbox = img"
+            >
+              <img :src="`data:${img.media_type};base64,${img.data}`" alt="用户上传的图片" />
+            </button>
+          </div>
+          <div v-if="msg.text" class="wk-user">{{ msg.text }}</div>
         </div>
         <div v-else-if="msg.role === 'assistant'" class="wk-msgrow">
           <div class="rowline">
@@ -166,6 +194,10 @@ const anyThinkRow = computed(() => props.messages.some((m) => m.thinking))
       title="回到最新消息"
       @click="scrollToBottom(true)"
     >↓</button>
+    <!-- 图片放大查看（票 03）：点遮罩任意处关闭 -->
+    <div v-if="lightbox" class="img-lightbox" @click="lightbox = null">
+      <img :src="`data:${lightbox.media_type};base64,${lightbox.data}`" alt="图片放大查看" />
+    </div>
   </div>
 </template>
 
@@ -178,6 +210,13 @@ const anyThinkRow = computed(() => props.messages.some((m) => m.thinking))
 .wk-msgrow{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
 .wk-msgrow:has(.wk-asst){align-items:flex-start}
 .wk-user{max-width:78%;background:var(--accent-soft);border-radius:14px 14px 4px 14px;padding:9px 14px;font-size:14px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+/* 用户图片网格 + lightbox（票 03） */
+.user-images{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:78%}
+.user-img{width:120px;height:120px;border:1px solid var(--line);border-radius:10px;overflow:hidden;padding:0;cursor:zoom-in;background:var(--surface2)}
+.user-img img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .15s}
+.user-img:hover img{transform:scale(1.04)}
+.img-lightbox{position:fixed;inset:0;z-index:300;display:grid;place-items:center;background:rgba(8,12,18,.72);backdrop-filter:blur(2px);cursor:zoom-out;padding:24px}
+.img-lightbox img{max-width:min(920px,92vw);max-height:88vh;border-radius:12px;box-shadow:var(--shadow)}
 .fork-btn{border:none;background:transparent;color:var(--ink3);font-size:11px;cursor:pointer;padding:0 4px;opacity:0;transition:opacity .12s}
 .wk-msgrow:hover .fork-btn{opacity:1}
 .fork-btn:hover{color:var(--accent)}

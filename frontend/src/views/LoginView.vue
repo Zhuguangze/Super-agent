@@ -11,6 +11,7 @@ const password = ref('')
 const error = ref('')
 const busy = ref(false)
 const mode = ref<'login' | 'register'>('login')
+const showPwd = ref(false)
 const typed = ref('')
 const statsEl = ref<HTMLElement | null>(null)
 const canvasEl = ref<HTMLCanvasElement | null>(null)
@@ -26,6 +27,31 @@ let raf = 0
 let typeTimer: number | undefined
 let cleanupResize: (() => void) | undefined
 
+/* 记住当前用户：登录成功后保存，回到登录页自动回填（登出不清除）。
+   密码仅做 base64 编码防肩窥/明文检索，不是加密——内网单机自用取舍。 */
+const REMEMBER_USER_KEY = 'super_agent_remember_user'
+const REMEMBER_PWD_KEY = 'super_agent_remember_pwd'
+
+function saveRemember(name: string, pwd: string): void {
+  try {
+    localStorage.setItem(REMEMBER_USER_KEY, name)
+    localStorage.setItem(REMEMBER_PWD_KEY, btoa(String.fromCharCode(...new TextEncoder().encode(pwd))))
+  } catch {
+    /* localStorage 不可用时静默跳过 */
+  }
+}
+
+function loadRemember(): void {
+  try {
+    const name = localStorage.getItem(REMEMBER_USER_KEY)
+    const pwd = localStorage.getItem(REMEMBER_PWD_KEY)
+    if (name) username.value = name
+    if (pwd) password.value = new TextDecoder().decode(Uint8Array.from(atob(pwd), (c) => c.charCodeAt(0)))
+  } catch {
+    /* 记住的密码损坏时忽略，让用户重新输入 */
+  }
+}
+
 async function submit(): Promise<void> {
   if (busy.value) return
   error.value = ''
@@ -37,7 +63,8 @@ async function submit(): Promise<void> {
     } else {
       await auth.login(username.value.trim(), password.value)
     }
-    router.push('/')
+    saveRemember(username.value.trim(), password.value)
+    router.push({ name: 'home' })
   } catch (e) {
     error.value = e instanceof Error ? (e.message.includes('409') ? '用户名已被占用' : e.message.includes('401') ? '用户名或密码错误' : e.message) : '登录失败'
   } finally {
@@ -210,8 +237,9 @@ function startScene(): void {
 }
 
 onMounted(() => {
+  loadRemember()
   startScene()
-  if (auth.token) router.push('/')
+  if (auth.token) router.push({ name: 'home' })
 })
 
 onBeforeUnmount(() => {
@@ -245,7 +273,25 @@ onBeforeUnmount(() => {
         </div>
         <div class="lg-field">
           <label>密码</label>
-          <input v-model="password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+          <div class="lg-pwd-wrap">
+            <input
+              v-model="password"
+              :type="showPwd ? 'text' : 'password'"
+              placeholder="••••••••"
+              autocomplete="current-password"
+              required
+            />
+            <button type="button" class="lg-pwd-eye" :title="showPwd ? '隐藏密码' : '显示密码'" @click="showPwd = !showPwd">
+              <svg v-if="showPwd" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                <line x1="1" y1="1" x2="23" y2="23" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+          </div>
         </div>
         <p v-if="error" class="lg-error login-error">{{ error }}</p>
         <button class="lg-submit" type="submit" :disabled="busy">{{ busy ? '提交中…' : mode === 'login' ? '登录' : '注册并进入' }}</button>
@@ -293,6 +339,11 @@ onBeforeUnmount(() => {
 .lg-field input{width:100%;border:1px solid rgba(120,200,215,.18);border-radius:10px;background:rgba(255,255,255,.045);padding:11px 13px;font-size:14px;color:#E8EEF2;outline:none;transition:border-color .15s,background .15s}
 .lg-field input::placeholder{color:#5E7280}
 .lg-field input:focus{border-color:var(--lg-a);background:rgba(69,196,216,.07)}
+.lg-pwd-wrap{position:relative}
+.lg-pwd-wrap input{padding-right:42px}
+.lg-pwd-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:none;border-radius:8px;background:transparent;color:#5E7B89;cursor:pointer}
+.lg-pwd-eye:hover{color:var(--lg-a);background:rgba(69,196,216,.08)}
+.lg-pwd-eye svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .lg-error{margin:0 0 12px;font-size:12.5px;color:#F0716C}
 .lg-submit{width:100%;padding:11px;margin-top:8px;font-size:14px;font-weight:600;border:none;border-radius:10px;background:linear-gradient(92deg,#0E7490,#45C4D8);color:#062A32;cursor:pointer}
 .lg-submit:hover{filter:brightness(1.1)}

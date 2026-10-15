@@ -20,6 +20,10 @@ _Avoid_: pi-mono
 核心循环：接收 prompt → 流式调用 LLM → 执行工具调用 → 结果回填 → 决定继续或结束。
 _Avoid_: 主循环, while 循环
 
+**Run**:
+一次 prompt 触发的 Agent Loop 执行实例：拥有独立的 Steer 队列与事件流，按 Session 归属；v1 起多 Session 的 Run 可并行（ADR-0005），数量受全局并发上限约束。
+_Avoid_: 任务执行, job
+
 **Turn**:
 一次完整的 prompt → LLM 响应 → 工具执行 周期；Agent Loop 由一或多个 Turn 组成。
 _Avoid_: 轮次, round
@@ -31,6 +35,10 @@ _Avoid_: 打断（打断是 Abort）
 **Follow-up**:
 Agent 结束运行后排队、自动触发下一个 Turn 的用户消息。
 _Avoid_: 追问
+
+**触发词(Hidden Prompt)**:
+不显示在界面、也不写入 Session 的开场指令——只进当轮模型上下文(如点击专家卡后的自我介绍请求,ADR-0004 同批引入的 images 字段与其互斥场景不组合)。
+_Avoid_: 系统提示(system prompt 是每轮常驻的模型指令), 隐藏消息
 
 **Abort**:
 用户主动终止当前运行。
@@ -63,6 +71,10 @@ _Avoid_: fork
 **Compaction**:
 将 Session 较早内容替换为摘要以腾出上下文窗口的机制。
 _Avoid_: 总结
+
+**图片块(Image Block)**:
+用户消息携带的多模态内容块(base64 的 media_type + data,ADR-0004);与工具结果富块中的"工具图片"同构但来源不同——用户上传 vs 工具产生。
+_Avoid_: 附件, attachment, 截图消息
 
 ### 记忆与多用户
 

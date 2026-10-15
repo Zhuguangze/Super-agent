@@ -1,13 +1,71 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { vClickOutside } from '@/directives/clickOutside'
 import { useChatStore } from '@/stores/chat'
+import { fileToImageBlock, IMAGE_TYPES, MAX_IMAGES, MAX_IMAGE_BYTES } from '@/utils/image'
 
 const props = defineProps<{ running: boolean; centered?: boolean }>()
-const emit = defineEmits<{ send: [text: string, skill?: string]; abort: [] }>()
+const emit = defineEmits<{
+  send: [text: string, skill?: string, images?: { media_type: string; data: string }[]]
+  abort: []
+}>()
 
 const chat = useChatStore()
 const draft = ref('')
 const openMenu = ref<'model' | 'think' | 'skill' | null>(null)
+
+// ---- 图片附件（票 02）：粘贴/拖拽/按钮 → 统一校验管线 → 缩略图预览 ----
+const attachments = ref<{ media_type: string; data: string; name: string }[]>([])
+const attachError = ref('')
+const fileInput = ref<HTMLInputElement | null>(null)
+
+function onPaste(ev: ClipboardEvent): void {
+  const files = Array.from(ev.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'))
+  if (files.length === 0) return
+  ev.preventDefault()
+  void addFiles(files)
+}
+
+async function addFiles(files: File[]): Promise<void> {
+  attachError.value = ''
+  for (const file of files) {
+    if (attachments.value.length >= MAX_IMAGES) {
+      attachError.value = `每条消息最多 ${MAX_IMAGES} 张图片`
+      break
+    }
+    if (!IMAGE_TYPES.test(file.type)) {
+      attachError.value = `不支持的图片类型：${file.type || file.name}`
+      continue
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      attachError.value = `「${file.name}」超过 5MB 上限`
+      continue
+    }
+    try {
+      const block = await fileToImageBlock(file)
+      attachments.value = [...attachments.value, { ...block, name: file.name }]
+    } catch (e) {
+      attachError.value = e instanceof Error ? e.message : '图片读取失败'
+    }
+  }
+}
+
+function removeAttachment(index: number): void {
+  attachments.value = attachments.value.filter((_, i) => i !== index)
+  attachError.value = ''
+}
+
+function onFilesChosen(ev: Event): void {
+  const input = ev.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  if (files.length) void addFiles(files)
+  input.value = '' // 允许重复选择同一文件
+}
+
+function onDrop(ev: DragEvent): void {
+  const files = Array.from(ev.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'))
+  if (files.length) void addFiles(files)
+}
 
 // ---- 当前会话上下文用量（最后一轮真实 input_tokens / 模型上下文窗口） ----
 const ctxUsed = computed(() => {
@@ -33,10 +91,16 @@ const THINK_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 const placeholder = computed(() =>
   props.running ? '插话 (Steer) — 直接进入当前 Loop…' : '给 Super Agent 一个任务…',
 )
-const canSend = computed(() => !!draft.value.trim() || props.running)
+const canSend = computed(() => !!draft.value.trim() || attachments.value.length > 0 || props.running)
 
 function closeMenus(): void {
   openMenu.value = null
+}
+
+/* 供 v-click-outside 用:只关自己的菜单,避免 pointerdown 阶段把别的 wrapper
+   正打开的菜单整棵拆掉,导致其内部元素的 click 永远收不到 */
+function closeMenu(kind: 'model' | 'think' | 'skill'): void {
+  if (openMenu.value === kind) openMenu.value = null
 }
 
 function toggleMenu(kind: 'model' | 'think' | 'skill'): void {
@@ -44,11 +108,25 @@ function toggleMenu(kind: 'model' | 'think' | 'skill'): void {
 }
 
 function submit(): void {
+  // Steer 队列仅支持纯文本（票 02 决议）：运行中带图发送提示等待，附件保留
+  if (props.running && attachments.value.length > 0) {
+    attachError.value = 'Agent 运行中，图片请等当前任务结束后再发送'
+    return
+  }
   const text = draft.value.trim()
-  if (!text) return
-  emit('send', text, chat.selectedSkill || undefined)
+  if (!text && attachments.value.length === 0) return
+  const images = attachments.value.map(({ media_type, data }) => ({ media_type, data }))
+  // 无附件时保持二元组形态（存量监听方语义不变）
+  const args: [string, string?, { media_type: string; data: string }[]?] = [
+    text,
+    chat.selectedSkill || undefined,
+  ]
+  if (images.length) args.push(images)
+  emit('send', ...args)
   chat.selectedSkill = '' // 选择一次性：随本条消息消耗（store 侧幂等）
   draft.value = ''
+  attachments.value = []
+  attachError.value = ''
   closeMenus()
 }
 
@@ -92,19 +170,50 @@ function pickThink(level: 'low' | 'medium' | 'high' | 'xhigh' | 'max'): void {
       <div v-if="chat.pendingCount > 0" class="wk-queue">
         ⏸ <span>{{ chat.pendingCount }} 条已排队 — 当前任务结束后自动注入</span>
       </div>
-      <div v-if="chat.selectedSkill" class="wk-queue skill-chip">
-        ⚡ <span>使用技能：{{ chat.selectedSkill }}</span>
-        <button class="chip-x" type="button" title="取消选择" @click="chat.selectedSkill = ''">✕</button>
+      <!-- 输入框外部的钉牌行：专家铭牌在前，选中的技能排在后面 -->
+      <div v-if="(chat.activeExpert && !centered) || chat.selectedSkill" class="wk-pin-row">
+        <div
+          v-if="chat.activeExpert && !centered"
+          class="wk-expert"
+          :style="{ '--hue': chat.activeExpert.hue }"
+        >
+          <span class="ex-dot"></span>
+          <span class="ex-name">{{ chat.activeExpert.label }}</span>
+          <span class="ex-sep">·</span>
+          <span>工作中</span>
+        </div>
+        <div v-if="chat.selectedSkill" class="wk-queue skill-chip">
+          ⚡ <span>使用技能：{{ chat.selectedSkill }}</span>
+          <button class="chip-x" type="button" title="取消选择" @click="chat.selectedSkill = ''">✕</button>
+        </div>
       </div>
-      <div class="wk-compose">
+      <div class="wk-compose" @drop.prevent="onDrop" @dragover.prevent>
+        <!-- 附件预览条（票 02） -->
+        <div v-if="attachments.length || attachError" class="wk-attach">
+          <div v-for="(a, i) in attachments" :key="a.name + i" class="wk-attach-thumb">
+            <img :src="`data:${a.media_type};base64,${a.data}`" :alt="a.name" />
+            <button class="attach-x" type="button" title="移除" @click="removeAttachment(i)">✕</button>
+          </div>
+          <span v-if="attachError" class="attach-error">{{ attachError }}</span>
+        </div>
         <textarea
           v-model="draft"
           rows="1"
           :placeholder="placeholder"
           @input="onInput"
+          @paste="onPaste"
         ></textarea>
-        <div class="wk-tbar" @clickout.stop>
-          <span class="wk-mw">
+        <div class="wk-tbar">
+          <input
+            ref="fileInput"
+            class="attach-input"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            multiple
+            @change="onFilesChosen"
+          />
+          <button class="wk-pill attach-pill" type="button" title="添加图片" @click="fileInput?.click()">📎</button>
+          <span class="wk-mw" v-click-outside="() => closeMenu('model')">
             <button
               class="wk-pill model-pill"
               type="button"
@@ -150,7 +259,7 @@ function pickThink(level: 'low' | 'medium' | 'high' | 'xhigh' | 'max'): void {
               <div class="wk-mfoot">切换即刻生效（WS set_model，下条消息起用）。<RouterLink class="mlink" to="/settings">管理模型 → Settings</RouterLink></div>
             </div>
           </span>
-          <span class="wk-mw">
+          <span class="wk-mw" v-click-outside="() => closeMenu('think')">
             <button
               class="wk-pill"
               type="button"
@@ -176,7 +285,7 @@ function pickThink(level: 'low' | 'medium' | 'high' | 'xhigh' | 'max'): void {
               <div class="wk-mfoot">adaptive thinking — set_thinking_level 随时调整。</div>
             </div>
           </span>
-          <span class="wk-mw">
+          <span class="wk-mw" v-click-outside="() => closeMenu('skill')">
             <button
               class="wk-pill skill-pill"
               type="button"
@@ -236,11 +345,25 @@ function pickThink(level: 'low' | 'medium' | 'high' | 'xhigh' | 'max'): void {
 .wk-compose-wrap.centered{padding:0;background:transparent}
 .wk-compose-box{max-width:720px;margin:0 auto}
 .wk-queue{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--ink2);background:var(--surface2);border:1px solid var(--line2);border-radius:999px;padding:4px 12px;margin-bottom:8px}
+.wk-pin-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.wk-pin-row .wk-queue{margin-bottom:0}
 .skill-chip .chip-x{border:none;background:transparent;color:var(--ink3);cursor:pointer;font-size:11px;padding:0 2px}
 .skill-chip .chip-x:hover{color:var(--error)}
 .wk-compose{position:relative;border:1px solid var(--line);border-radius:20px;background:var(--surface2);padding:13px 13px 9px;transition:border-color .15s,box-shadow .15s}
 .wk-compose:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .wk-compose textarea{display:block;width:100%;border:none;background:transparent;outline:none;resize:none;font-size:14.5px;line-height:1.6;max-height:160px;padding:2px 4px 0;color:var(--ink);font-family:inherit}
+/* 附件预览条（票 02） */
+.wk-attach{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+.wk-attach-thumb{position:relative;width:56px;height:56px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface2)}
+.wk-attach-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.attach-x{position:absolute;top:2px;right:2px;width:16px;height:16px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:9px;line-height:1;display:grid;place-items:center;cursor:pointer;padding:0}
+.attach-x:hover{background:rgba(0,0,0,.75)}
+.attach-error{font-size:12px;color:var(--warn)}
+.attach-input{display:none}
+.wk-expert{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);background:color-mix(in srgb,var(--hue) 10%,var(--surface2));border:1px solid color-mix(in srgb,var(--hue) 30%,var(--line2));border-radius:999px;padding:3px 11px}
+.wk-expert .ex-dot{width:7px;height:7px;border-radius:50%;background:var(--hue);flex:none;animation:expertPulse 1.6s ease-in-out infinite}
+.wk-expert .ex-name{color:var(--ink);font-weight:500}
+@keyframes expertPulse{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--hue) 22%,transparent)}}
 .wk-compose textarea::placeholder{color:var(--ink3)}
 .wk-tbar{display:flex;align-items:center;gap:5px;margin-top:9px}
 .wk-tbar .sp{flex:1}

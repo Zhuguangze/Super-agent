@@ -41,7 +41,18 @@ class ToolResultBlock:
     blocks: list[dict] | None = None
 
 
-ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock
+@dataclass
+class ImageBlock:
+    """用户消息中的图片块（多模态输入）；与工具结果富块同构的扁平字典形状（票 24 约定）。
+
+    data 为 base64 字符串，media_type 限 png/jpeg/webp/gif。
+    """
+
+    media_type: str
+    data: str
+
+
+ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock | ImageBlock
 
 
 @dataclass

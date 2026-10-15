@@ -25,6 +25,7 @@ from super_agent.ai.provider import (
 )
 from super_agent.ai.types import (
     ContentBlock,
+    ImageBlock,
     Message,
     MessageEnd,
     MessageStart,
@@ -197,7 +198,20 @@ def _to_api_messages(messages: list[Message], system: str | None) -> list[dict]:
                 entry["tool_calls"] = tool_calls
             api_messages.append(entry)
         else:
-            api_messages.append({"role": "user", "content": text})
+            # 票 01：多模态——含图片块时用 content parts（OpenAI image_url data-URI 形态）
+            image_parts = [
+                {"type": "image_url", "image_url": {"url": f"data:{b.media_type};base64,{b.data}"}}
+                for b in m.content
+                if isinstance(b, ImageBlock)
+            ]
+            if image_parts:
+                parts: list[dict] = []
+                if text:
+                    parts.append({"type": "text", "text": text})
+                parts.extend(image_parts)
+                api_messages.append({"role": "user", "content": parts})
+            else:
+                api_messages.append({"role": "user", "content": text})
     return api_messages
 
 

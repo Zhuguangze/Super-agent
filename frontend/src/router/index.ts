@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ChatView from '../views/ChatView.vue'
+import HomeView from '../views/HomeView.vue'
 import { hasStoredToken } from '@/stores/auth'
 
 const router = createRouter({
@@ -24,6 +25,11 @@ const router = createRouter({
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
+    },
+    {
+      path: '/home',
+      name: 'home',
+      component: HomeView,
     },
   ],
 })

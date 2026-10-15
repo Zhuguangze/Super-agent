@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import { vClickOutside } from '@/directives/clickOutside'
 import { patchSession, type SessionSummary } from '@/api/rest'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
@@ -16,21 +17,14 @@ const userMenuOpen = ref(false)
 
 onMounted(() => {
   void chat.loadSessions()
-  window.addEventListener('click', onGlobalClick)
 })
 
-onBeforeUnmount(() => {
-  window.removeEventListener('click', onGlobalClick)
-})
+function closeSessionMenu(id: string): void {
+  if (menuForId.value === id) menuForId.value = null
+}
 
-function onGlobalClick(ev: MouseEvent): void {
-  const target = ev.target as HTMLElement
-  if (!target.closest('.wk-sess') && !target.closest('.sess-menu')) {
-    menuForId.value = null
-  }
-  if (!target.closest('.wk-userbtn') && !target.closest('.wk-usermenu')) {
-    userMenuOpen.value = false
-  }
+function closeUserMenu(): void {
+  userMenuOpen.value = false
 }
 
 const initial = computed(() => (auth.username || 'U').charAt(0).toUpperCase())
@@ -98,12 +92,13 @@ function logout(): void {
 <template>
   <aside class="wk-side">
     <div class="wk-brand">Super<em> Agent</em></div>
-    <button class="btn wk-new" :disabled="chat.running" @click="chat.newSession">＋ 新会话</button>
+    <button class="btn wk-new" @click="chat.newSession">＋ 新会话</button>
     <div class="wk-sessions">
       <div
         v-for="s in sorted"
         :key="s.id"
         class="wk-sesswrap"
+        v-click-outside="() => closeSessionMenu(s.id)"
       >
         <button
           class="wk-sess"
@@ -111,7 +106,15 @@ function logout(): void {
           @click="chat.switchSession(s.id); menuForId = null"
         >
           <span class="t">
-            <span v-if="s.pinned" class="pin" title="已置顶">📌</span>{{ sessTitle(s) }}
+            <span v-if="s.pinned" class="pin" title="已置顶">📌</span>
+            <span class="t-text">{{ sessTitle(s) }}</span>
+            <i v-if="chat.unreadBySession[s.id]" class="unread-dot" title="有新回复"></i>
+            <span
+              v-if="chat.expertBySession[s.id]"
+              class="ex-tag"
+              :style="{ '--hue': chat.expertBySession[s.id]!.hue }"
+              :title="`专家会话：${chat.expertBySession[s.id]!.label}`"
+            >{{ chat.expertBySession[s.id]!.label }}</span>
           </span>
           <span class="s">
             <i v-if="s.running" class="run-dot"></i>
@@ -154,7 +157,7 @@ function logout(): void {
       </div>
     </div>
     <RouterLink class="wk-all" to="/sessions"><span>全部会话</span><span>→</span></RouterLink>
-    <div class="wk-userzone">
+    <div class="wk-userzone" v-click-outside="closeUserMenu">
       <div v-if="userMenuOpen" class="wk-usermenu">
         <div class="um-model tmeta">{{ chat.currentModel }}</div>
         <RouterLink class="wk-mi" to="/settings" @click="userMenuOpen = false">
@@ -192,10 +195,15 @@ function logout(): void {
 .wk-sess{display:flex;flex-direction:column;gap:2px;padding:8px 26px 8px 10px;border-radius:8px;text-align:left;width:100%}
 .wk-sess:hover{background:var(--surface2)}
 .wk-sess.active{background:var(--accent-soft)}
-.wk-sess .t{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wk-sess .t{font-size:13px;font-weight:500;display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}
+.wk-sess .t-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
+/* 专家会话标记：同色小铭牌缀在标题后 */
+.ex-tag{flex:none;font-size:10px;line-height:1.4;font-weight:500;color:color-mix(in srgb,var(--hue) 75%,var(--ink));background:color-mix(in srgb,var(--hue) 13%,transparent);border:1px solid color-mix(in srgb,var(--hue) 32%,transparent);border-radius:999px;padding:0 6px;white-space:nowrap}
 .wk-sess.active .t{color:var(--accent)}
 .wk-sess .s{font-size:11.5px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:5px}
 .run-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1.6s infinite;flex:none}
+/* 未读标记（ADR-0005）：后台会话有新回复，进入即清 */
+.unread-dot{width:7px;height:7px;border-radius:50%;background:var(--warn);flex:none}
 .pin{margin-right:3px;font-size:10px}
 .sess-more{position:absolute;top:6px;right:4px;width:22px;height:22px;border-radius:6px;display:grid;place-items:center;color:var(--ink3);font-size:13px;opacity:0;transition:opacity .12s}
 .wk-sesswrap:hover .sess-more{opacity:1}

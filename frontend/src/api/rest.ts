@@ -7,6 +7,9 @@ export interface SessionContentBlock {
   text?: string
   thinking?: string
   signature?: string
+  // image（票 01：用户消息多模态图片块）
+  media_type?: string
+  data?: string
   // tool_use（assistant 发起调用）
   id?: string
   name?: string

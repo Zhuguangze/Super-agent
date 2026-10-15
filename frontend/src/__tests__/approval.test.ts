@@ -40,13 +40,15 @@ describe('chat store：审批状态（ticket 07）', () => {
       params: { command: 'ls' },
     })
     expect(chat.pendingApproval?.approvalId).toBe('apr_1')
-    // 不同 id 覆盖（旧请求已被服务端清理）
+    // 不同 id 排队（ADR-0005：并发会话审批各自挂起，弹窗取最早的）
     chat.handleEvent({
       type: 'approval_request',
       approval_id: 'apr_2',
       tool: 'bash',
       params: { command: 'pwd' },
     })
+    expect(chat.pendingApproval?.approvalId).toBe('apr_1')
+    chat.handleEvent({ type: 'approval_resolved', approval_id: 'apr_1', allow: true })
     expect(chat.pendingApproval?.approvalId).toBe('apr_2')
   })
 

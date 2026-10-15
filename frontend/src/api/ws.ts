@@ -135,7 +135,8 @@ export interface ApprovalResolvedEvent {
   allow: boolean
 }
 
-export type AgentEvent =
+/** 所有下行事件携带来源会话（ADR-0005：单连接多路复用，前端按 session_id 路由）。 */
+export type AgentEvent = (
   | MessageStartEvent
   | MessageUpdateEvent
   | MessageEndEvent
@@ -153,6 +154,7 @@ export type AgentEvent =
   | ApprovalResolvedEvent
   | CompactionStartEvent
   | CompactionEndEvent
+) & { session_id?: string }
 
 export class WsClient {
   status: WsStatus = 'disconnected'
