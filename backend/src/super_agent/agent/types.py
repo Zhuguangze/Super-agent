@@ -38,6 +38,7 @@ class AgentToolResult:
     is_error: bool = False
     details: dict | None = None
     blocks: list[dict] | None = None
+    terminate: bool = False
 
 
 @runtime_checkable

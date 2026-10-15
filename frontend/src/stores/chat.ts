@@ -167,6 +167,7 @@ export const useChatStore = defineStore('chat', () => {
   const messagesBySession = ref<Record<string, ChatMessage[]>>({})
   const runningBySession = ref<Record<string, boolean>>({})
   const pendingBySession = ref<Record<string, number>>({})
+  const turnBySession = ref<Record<string, number>>({})
   const unreadBySession = ref<Record<string, boolean>>({})
   const pendingApprovals = ref<PendingApproval[]>([])
   const currentSessionId = ref<string | null>(null)
@@ -182,6 +183,9 @@ export const useChatStore = defineStore('chat', () => {
   /** 当前会话的 steer/follow-up 排队数 */
   const pendingCount = computed<number>(
     () => pendingBySession.value[currentSessionId.value ?? '__pending__'] ?? 0,
+  )
+  const turnCount = computed<number>(
+    () => turnBySession.value[currentSessionId.value ?? '__pending__'] ?? 0,
   )
   /** 全局最早的未决审批（任意会话,Q4-B）:弹窗标注来源,避免后台审批被超时误拒 */
   const pendingApproval = computed<PendingApproval | null>(() => pendingApprovals.value[0] ?? null)
@@ -401,6 +405,28 @@ export const useChatStore = defineStore('chat', () => {
         msg.tool.blocks = (ev as { blocks?: ToolResultRichBlock[] }).blocks
         msg.status = ev.is_error ? 'error' : 'done'
       }
+      // truncated guard：模型输出被截断，工具未执行，模型即将重发完整内容
+      if (ev.is_error && ev.content.includes('截断')) {
+        buf.push({
+          id: `notice_${++noticeSeq}`,
+          role: 'notice',
+          text: '模型输出被截断，工具未执行——正在重发完整内容。',
+          thinking: '',
+          status: 'done',
+        })
+      }
+    } else if (ev.type === 'agent_start') {
+      turnBySession.value = { ...turnBySession.value, [sid ?? '__pending__']: 0 }
+    } else if (ev.type === 'turn_start') {
+      turnBySession.value = { ...turnBySession.value, [sid ?? '__pending__']: ev.turn }
+    } else if (ev.type === 'compaction_start') {
+      buf.push({
+        id: `notice_${++noticeSeq}`,
+        role: 'notice',
+        text: '正在压缩上下文…',
+        thinking: '',
+        status: 'done',
+      })
     } else if (ev.type === 'agent_end') {
       setRunning(sid, false)
       // 后台会话完成 → 未读标记，进入该会话时清除（Q3-B）
@@ -710,6 +736,7 @@ export const useChatStore = defineStore('chat', () => {
     runningBySession,
     unreadBySession,
     pendingCount,
+    turnCount,
     pendingApproval,
     currentSessionId,
     sessions,

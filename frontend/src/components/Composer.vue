@@ -170,6 +170,9 @@ function pickThink(level: 'low' | 'medium' | 'high' | 'xhigh' | 'max'): void {
       <div v-if="chat.pendingCount > 0" class="wk-queue">
         ⏸ <span>{{ chat.pendingCount }} 条已排队 — 当前任务结束后自动注入</span>
       </div>
+      <div v-if="chat.turnCount > 0 && chat.running" class="wk-queue">
+        🔄 <span>第 {{ chat.turnCount }} 轮</span>
+      </div>
       <!-- 输入框外部的钉牌行：专家铭牌在前，选中的技能排在后面 -->
       <div v-if="(chat.activeExpert && !centered) || chat.selectedSkill" class="wk-pin-row">
         <div

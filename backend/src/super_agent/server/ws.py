@@ -14,6 +14,7 @@ run 统一接管事件出口，并按同一 approval_id 重发挂起审批——
 
 import asyncio
 import base64
+import logging
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketException
 from starlette.websockets import WebSocketDisconnect
@@ -21,6 +22,8 @@ from starlette.websockets import WebSocketDisconnect
 from super_agent.app.approval import approval_request_payload
 from super_agent.app.chat import ChatService
 from super_agent.server.auth import AuthService
+
+logger = logging.getLogger(__name__)
 
 WS_CLOSE_UNAUTHORIZED = 4401
 
@@ -151,7 +154,9 @@ def ws_router() -> APIRouter:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                # 编程类错误不能静默——尽力给用户一条可见的错误事件
+                # 编程类错误不能静默：先落服务端日志——连接已断时事件是空操作，
+                # 日志就是唯一的痕迹；再尽力给用户一条可见的错误事件。
+                logger.exception("run_prompt 未预期异常（user_id=%s）", user.id)
                 await make_on_event(sink)({"type": "error", "code": "internal", "message": str(exc)})
 
         async def steer(handle: RunHandle, text: str) -> None:
@@ -326,10 +331,19 @@ def ws_router() -> APIRouter:
                             {"type": "response", "req_id": req_id, "ok": False, "error": "agent_busy"}
                         )
                     else:
+                        # instructions：可选，引导摘要聚焦（Claude Code 式 /compact focus on …）
+                        raw = msg.get("instructions")
                         compacted = await chat.compact_session(
                             user_id=user.id,
                             session_id=session_id,
                             on_event=make_on_event({"ws": websocket}),
+                            # 摘要须由会话当前模型/强度生成，否则手动压缩会落到默认模型，
+                            # 与自动压缩路径（run_prompt 透传会话模型）不一致
+                            model=chat.session_model(user.id, session_id),
+                            effort=chat.session_effort(user.id, session_id),
+                            instructions=str(raw)
+                            if isinstance(raw, str) and raw.strip()
+                            else None,
                         )
                         await websocket.send_json(
                             {"type": "response", "req_id": req_id, "ok": True, "compacted": compacted}

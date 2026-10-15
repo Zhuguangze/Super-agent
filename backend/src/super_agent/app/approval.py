@@ -12,10 +12,12 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
+from super_agent.agent.hooks import ToolCallBlock
+
 DEFAULT_APPROVAL_TIMEOUT = 120.0
 
-# 钩子签名对齐 agent.hooks 的 before_tool_call：(name, params, call_id) -> str | None
-BeforeToolCallHook = Callable[[str, dict, str], Awaitable[str | None]]
+# 钩子签名对齐 agent.hooks 的 before_tool_call：(name, params, call_id) -> str | ToolCallBlock | None
+BeforeToolCallHook = Callable[[str, dict, str], Awaitable[str | ToolCallBlock | None]]
 
 
 class PendingApproval:
@@ -41,10 +43,13 @@ class ApprovalService:
         allowlist: set[str] | None = None,
         timeout: float = DEFAULT_APPROVAL_TIMEOUT,
         enabled: bool = True,
+        terminate_on_reject: bool = False,
     ) -> None:
         self._allowlist = allowlist or set()
         self._timeout = timeout
         self.enabled = enabled
+        # 拒绝危险工具时是否请求终止整批（全票才生效）；默认 False 保持"单个拒绝、批次继续"
+        self.terminate_on_reject = terminate_on_reject
         self._pending: dict[str, PendingApproval] = {}  # approval_id → 挂起请求
 
     # ---- 白名单 ----
@@ -86,7 +91,7 @@ def make_approval_hook(
 ) -> BeforeToolCallHook:
     """生成挂进 Hooks 的 before_tool_call 钩子：白名单放行，否则走审批流。"""
 
-    async def hook(name: str, params: dict, call_id: str) -> str | None:
+    async def hook(name: str, params: dict, call_id: str) -> str | ToolCallBlock | None:
         if service.is_allowed(name):
             return None
         approval_id = f"apr_{uuid4().hex[:12]}"
@@ -105,10 +110,16 @@ def make_approval_hook(
         try:
             allowed = await asyncio.wait_for(pending.future, timeout=service._timeout)
         except asyncio.TimeoutError:
+            if service.terminate_on_reject:
+                return ToolCallBlock(reason="审批超时未确认，已自动拒绝", terminate=True)
             return "审批超时未确认，已自动拒绝"
         finally:
             service._abandon(approval_id)
-        return None if allowed else "用户拒绝了该工具调用"
+        if allowed:
+            return None
+        if service.terminate_on_reject:
+            return ToolCallBlock(reason="用户拒绝了该工具调用", terminate=True)
+        return "用户拒绝了该工具调用"
 
     return hook
 

@@ -50,8 +50,8 @@ from super_agent.agent.types import (
 )
 from super_agent.app.approval import ApprovalService, make_approval_hook
 from super_agent.app.compaction import (
-    AUTO_COMPACT_INPUT_TOKENS,
     COMPACT_KEEP_LAST,
+    auto_compact_threshold,
     is_summary_message,
     summarize,
     transcribe,
@@ -90,17 +90,6 @@ def _accumulate(partial: list, block) -> None:
         partial[-1].text += block.text
     else:
         partial.append(block)
-
-
-def _drain(queue: asyncio.Queue[str] | None) -> list[str]:
-    if queue is None:
-        return []
-    items: list[str] = []
-    while True:
-        try:
-            items.append(queue.get_nowait())
-        except asyncio.QueueEmpty:
-            return items
 
 
 class ChatService:
@@ -404,35 +393,32 @@ class ChatService:
                 await base_on_event({**ev, "session_id": session_id})
 
         async with self._loop_sem:
-            first = True
-            while True:
-                usage = await self._run_single(
-                    text,
-                    user_id=user_id,
-                    session_id=session_id,
-                    on_event=on_event,
-                    model=model,
-                    effort=effort,
-                    steer_queue=steer_queue,
-                    skill=skill,
-                    expert=expert,
-                    hidden=hidden and first,
-                    images=images if first else None,
-                )
-                first = False
-                if (
-                    usage is not None
-                    and session_id is not None
-                    and usage.input_tokens >= AUTO_COMPACT_INPUT_TOKENS
-                ):
+            # Follow-up 已由 agent_loop 的外层循环自己续跑（双层循环），app 层只驱动一次 run
+            usage = await self._run_single(
+                text,
+                user_id=user_id,
+                session_id=session_id,
+                on_event=on_event,
+                model=model,
+                effort=effort,
+                steer_queue=steer_queue,
+                skill=skill,
+                expert=expert,
+                hidden=hidden,
+                images=images,
+            )
+            if usage is not None and session_id is not None:
+                use_model = model or self.session_model(user_id, session_id)
+                window = MODELS[use_model].context_window if use_model in MODELS else None
+                # 阈值按模型窗口推导；模型未知则无从判断窗口，跳过自动压缩
+                if window is not None and usage.input_tokens >= auto_compact_threshold(window):
                     await self.compact_session(
-                        user_id=user_id, session_id=session_id, on_event=on_event, model=model, effort=effort
+                        user_id=user_id,
+                        session_id=session_id,
+                        on_event=on_event,
+                        model=model,
+                        effort=effort,
                     )
-                followups = _drain(steer_queue)
-                if not followups:
-                    return
-                await on_event({"type": "queue_update", "pending": 0})
-                text = followups[0]
 
     # ---- 压缩（ticket 10） ----
 
@@ -492,32 +478,57 @@ class ChatService:
         on_event: EventHandler,
         model: str | None = None,
         effort: Effort = DEFAULT_EFFORT,
+        instructions: str | None = None,
     ) -> bool:
         """把活跃分支早期内容压缩为摘要（手动 compact 命令与自动触发共用）。
 
         返回是否真的压缩。消息不足、无会话或摘要失败都不拖垮会话。
+        instructions：摘要附加要求（手动命令传入，或被 before_compaction 钩子覆盖）。
         """
         if self._store is None or session_id is None:
             return False
+
+        # before_compaction 扩展钩子：可阻断本次压缩，也可注入摘要要求。
+        # 扩展层维持"坏插件隔离"（异常在 ExtensionManager 内记 warning 后跳过）。
+        ext = self._ext_manager_for(user_id)
+        if ext.has_compaction_hooks():
+            decision = await ext.run_before_compaction({"session_id": session_id})
+            if decision:
+                if decision.get("block"):
+                    await on_event(
+                        {"type": "compaction_end", "compacted": False, "reason": "被扩展阻止"}
+                    )
+                    return False
+                if decision.get("instructions"):
+                    instructions = str(decision["instructions"])
+
         await on_event({"type": "compaction_start"})
         try:
             entries = self._store.read_active_branch(user_id, session_id)
             message_entries = [e for e in entries if e["type"] == "message"]
             if len(message_entries) <= COMPACT_KEEP_LAST:
-                await on_event({"type": "compaction_end", "compacted": False})
+                await on_event(
+                    {"type": "compaction_end", "compacted": False, "reason": "消息不足"}
+                )
                 return False
             all_messages = self._store.replay_messages(user_id, session_id)
             keep = min(COMPACT_KEEP_LAST, len(all_messages) - 1)
             keep_messages = all_messages[-keep:]
             if any(is_summary_message(m) for m in keep_messages):
                 # 保留段里已是摘要合成消息——真实消息不足，无意义
-                await on_event({"type": "compaction_end", "compacted": False})
+                await on_event(
+                    {"type": "compaction_end", "compacted": False, "reason": "保留段已含摘要"}
+                )
                 return False
             old_messages = all_messages[:-keep]
             first_kept_entry_id = message_entries[-keep]["id"]
             transcript = transcribe(old_messages)
             summary = await summarize(
-                self._provider, model or self._default_model, effort, transcript
+                self._provider,
+                model or self._default_model,
+                effort,
+                transcript,
+                instructions=instructions,
             )
             self._store.append_compaction(
                 user_id, session_id, summary=summary, first_kept_entry_id=first_kept_entry_id
@@ -525,10 +536,19 @@ class ChatService:
             await on_event(
                 {"type": "compaction_end", "compacted": True, "summary_chars": len(summary)}
             )
+            await ext.emit(
+                "compaction_end",
+                {"user_id": user_id, "session_id": session_id, "summary_chars": len(summary)},
+            )
             return True
-        except Exception:
-            # 摘要生成失败等：不拖垮会话，仅上报未压缩
-            await on_event({"type": "compaction_end", "compacted": False})
+        except Exception as exc:
+            # 摘要生成失败等：不拖垮会话，但必须留下可诊断的痕迹
+            logging.exception("压缩失败（user_id=%s, session_id=%s）", user_id, session_id)
+            await on_event({"type": "compaction_end", "compacted": False, "reason": str(exc)})
+            await ext.emit(
+                "compaction_failed",
+                {"user_id": user_id, "session_id": session_id, "reason": str(exc)},
+            )
             return False
 
     # ---- 内部：单次 run ----

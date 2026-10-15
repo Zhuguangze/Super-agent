@@ -11,8 +11,17 @@ from super_agent.app.session_store import SUMMARY_LEAD
 
 # 保留段：最近 N 条 message 原文不动，更早的进摘要
 COMPACT_KEEP_LAST = 8
-# 自动触发阈值：一轮回复的 input_tokens 超过即压缩（Opus 200K 窗口留余量）
-AUTO_COMPACT_INPUT_TOKENS = 160_000
+# 自动触发阈值占上下文窗口的比例：压缩本身要消耗 token 生成摘要，故留出余量
+AUTO_COMPACT_RATIO = 0.8
+
+
+def auto_compact_threshold(context_window: int) -> int:
+    """按模型上下文窗口推导自动压缩阈值。
+
+    阈值不能写死：写死 160K 时，128K 窗口的模型输入永远到不了 160K，
+    自动压缩成了死代码；1M 窗口的模型又会在 160K 就压缩，浪费 84% 的窗口。
+    """
+    return int(context_window * AUTO_COMPACT_RATIO)
 
 SUMMARY_SYSTEM = (
     "你是对话摘要助手。把给出的对话浓缩成要点摘要，供后续对话续接上下文使用。"
@@ -48,11 +57,21 @@ async def summarize(
     model_id: str,
     effort: Effort,
     transcript: str,
+    *,
+    instructions: str | None = None,
 ) -> str:
-    """静默生成摘要（流事件不透传给前端）。"""
+    """静默生成摘要（流事件不透传给前端）。
+
+    instructions：调用方的附加要求（扩展的 before_compaction 钩子或手动
+    compact 命令传入），并入系统提示，用于引导摘要聚焦——摘要质量差是
+    压缩最实际的痛点。
+    """
     parts: list[str] = []
+    system = SUMMARY_SYSTEM
+    if instructions and instructions.strip():
+        system = f"{SUMMARY_SYSTEM}\n\n附加要求：{instructions.strip()}"
     messages = [Message(role="user", content=[TextBlock(transcript)])]
-    async for event in provider.stream(messages, model_id, system=SUMMARY_SYSTEM, effort=effort):
+    async for event in provider.stream(messages, model_id, system=system, effort=effort):
         if isinstance(event, TextDelta):
             parts.append(event.delta)
     return "".join(parts).strip()

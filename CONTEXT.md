@@ -44,6 +44,10 @@ _Avoid_: 系统提示(system prompt 是每轮常驻的模型指令), 隐藏消�
 用户主动终止当前运行。
 _Avoid_: stop, cancel
 
+**Run Failure**:
+run 因内部故障终止（钩子异常、Provider 错误等），非用户发起；与 Abort 构成 run 终止的两种因。
+_Avoid_: crash, error, 报错
+
 ### 工具
 
 **Tool**:

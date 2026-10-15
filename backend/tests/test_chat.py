@@ -314,7 +314,7 @@ async def test_tool_round_emits_tool_events_and_persists(tmp_path) -> None:
 
 
 async def test_followup_reruns_after_loop_ends(tmp_path) -> None:
-    """loop 结束后 steer 队列剩余按 Follow-up 语义自动续跑新 run（重放重建上下文）。"""
+    """loop 结束后 steer 队列剩余按 Follow-up 语义在 loop 内续跑（双层循环，同一 run，上下文内存连续）。"""
     script = [
         [
             MessageStart(model="m", usage=Usage(input_tokens=3)),
@@ -343,14 +343,9 @@ async def test_followup_reruns_after_loop_ends(tmp_path) -> None:
         "hi", user_id=1, session_id=sid, on_event=_collector(sent), steer_queue=queue
     )
 
-    # 续跑前先清零队列事件（事件现在携带 session_id，ADR-0005）
-    assert any(
-        e["type"] == "queue_update" and e["pending"] == 0 and e.get("session_id") == sid
-        for e in sent
-    )
-    # 第二次 run 是完整的新 agent run，上下文 = 重放 + follow-up 消息
+    # follow-up 在同一个 run 内续跑：上下文连续（重放 + assistant + follow-up），agent_end 只有一次
     assert [m.text() for m in provider.contexts[1]] == ["hi", "第一答", "接着来"]
-    assert [e["type"] for e in sent].count("agent_end") == 2
+    assert [e["type"] for e in sent].count("agent_end") == 1
 
 
 # ---- ticket 06：workspace 文件工具接线 ----

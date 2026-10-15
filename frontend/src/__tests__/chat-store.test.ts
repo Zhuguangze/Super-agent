@@ -244,4 +244,37 @@ describe('chat store：agent 相位与工具事件（ticket 05）', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('turn_start 更新 turn 计数，agent_start 重置', () => {
+    const chat = useChatStore()
+    chat.currentSessionId = 's1'
+    chat.handleEvent({ type: 'agent_start', session_id: 's1' })
+    expect(chat.turnCount).toBe(0)
+    chat.handleEvent({ type: 'turn_start', turn: 1, session_id: 's1' })
+    expect(chat.turnCount).toBe(1)
+    chat.handleEvent({ type: 'turn_start', turn: 2, session_id: 's1' })
+    expect(chat.turnCount).toBe(2)
+  })
+
+  it('compaction_start 推一条压缩中的 notice', () => {
+    const chat = useChatStore()
+    chat.currentSessionId = 's1'
+    chat.handleEvent({ type: 'compaction_start', session_id: 's1' })
+    const notices = chat.messages.filter((m) => m.role === 'notice')
+    expect(notices.some((n) => n.text.includes('压缩'))).toBe(true)
+  })
+
+  it('截断的工具结果推一条重发提示 notice', () => {
+    const chat = useChatStore()
+    chat.currentSessionId = 's1'
+    chat.handleEvent({ type: 'tool_execution_start', tool_call_id: 't1', name: 'read', params: {} })
+    chat.handleEvent({
+      type: 'tool_execution_end',
+      tool_call_id: 't1',
+      content: '响应被截断，工具调用未执行（参数可能不完整）',
+      is_error: true,
+    })
+    const notices = chat.messages.filter((m) => m.role === 'notice')
+    expect(notices.some((n) => n.text.includes('截断'))).toBe(true)
+  })
 })

@@ -331,13 +331,16 @@ def register(api):
 
 
 def test_extension_events_enumeration() -> None:
-    """七个事件钩子齐全（spec §4.9）。"""
+    """十个事件钩子齐全（spec §4.9；压缩三事件为可干预压缩所加）。"""
     assert set(EXTENSION_EVENTS) == {
         "session_start",
         "before_agent_start",
         "tool_call",
         "tool_result",
         "context",
+        "before_compaction",
+        "compaction_end",
+        "compaction_failed",
         "agent_settled",
         "turn_end",
     }

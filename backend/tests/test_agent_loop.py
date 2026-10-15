@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from super_agent.agent.hooks import Hooks
+from super_agent.agent.hooks import Hooks, ToolCallBlock
 from super_agent.agent.loop import agent_loop
 from super_agent.agent.types import (
     AgentEnd,
@@ -283,6 +283,98 @@ async def test_hooks_can_intercept_and_replace() -> None:
     assert tool.calls == []
 
 
+async def test_before_hook_failure_degrades_and_run_continues() -> None:
+    """钩子抛异常 → 降级为该工具的错误结果，整轮不中止（会话完整性优先）。"""
+    provider = ScriptedLoopProvider(
+        [
+            _tool_turn([ToolUseBlock(id="t1", name="echo", input={"text": "hi"})]),
+            _text_turn("done"),
+        ]
+    )
+    tool = EchoTool()
+    hooks = Hooks()
+
+    async def broken(name, params, call_id):
+        raise RuntimeError("钩子内部炸了")
+
+    hooks.on_before_tool_call(broken)
+
+    events, end = await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [tool],
+            [Message(role="user", content=[TextBlock("q")])], on_event, hooks=hooks,
+        )
+    )
+
+    tool_end = next(e for e in events if isinstance(e, ToolExecutionEnd))
+    assert tool_end.result.is_error is True
+    assert "钩子故障" in tool_end.result.content
+    assert "RuntimeError" in tool_end.result.content
+    assert tool.calls == []  # 钩子故障时工具不执行
+    # 关键：run 没有中止——第二个 Turn 正常跑完并发出 agent_end
+    assert end.stop_reason == "end_turn"
+    assert any(isinstance(e, AgentEnd) for e in events)
+
+
+async def test_after_hook_failure_preserves_tool_output() -> None:
+    """工具已执行、副作用已生效——后处理钩子故障必须保留真实输出。"""
+    provider = ScriptedLoopProvider(
+        [
+            _tool_turn([ToolUseBlock(id="t1", name="echo", input={"text": "hi"})]),
+            _text_turn("done"),
+        ]
+    )
+    tool = EchoTool()
+    hooks = Hooks()
+
+    async def broken(call_id, result):
+        raise RuntimeError("后处理炸了")
+
+    hooks.on_after_tool_call(broken)
+
+    events, end = await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [tool],
+            [Message(role="user", content=[TextBlock("q")])], on_event, hooks=hooks,
+        )
+    )
+
+    tool_end = next(e for e in events if isinstance(e, ToolExecutionEnd))
+    assert "echo: hi" in tool_end.result.content  # 工具真实输出保留
+    assert "后处理钩子故障" in tool_end.result.content  # 故障有标注
+    assert tool_end.result.is_error is False  # 工具本身没失败
+    assert tool.calls != []  # 工具确实跑了
+    assert end.stop_reason == "end_turn"
+
+
+async def test_event_channel_failure_degrades_without_aborting() -> None:
+    """run_one 兜底：事件发射故障也不中止整轮，且回填结果不留悬空 tool_use。"""
+    provider = ScriptedLoopProvider(
+        [
+            _tool_turn([ToolUseBlock(id="t1", name="echo", input={"text": "hi"})]),
+            _text_turn("done"),
+        ]
+    )
+    tool = EchoTool()
+    events: list = []
+
+    async def on_event(ev) -> None:
+        if isinstance(ev, ToolExecutionStart):
+            raise RuntimeError("事件通道故障")
+        events.append(ev)
+
+    end = await agent_loop(
+        provider, "claude-opus-5", [tool],
+        [Message(role="user", content=[TextBlock("q")])], on_event,
+    )
+
+    appended = next(e for e in events if isinstance(e, MessagesAppended))
+    block = appended.messages[0].content[0]
+    assert block.is_error is True
+    assert "工具管道故障" in block.content
+    assert end.stop_reason == "end_turn"
+
+
 async def test_steer_consumed_after_tool_execution() -> None:
     provider = ScriptedLoopProvider(
         [
@@ -393,3 +485,253 @@ async def test_sequential_tool_forces_serial_execution() -> None:
     await _collect(run)
     # 一个 sequential 工具参与 → 整体串行：a 完成后 b 才开始
     assert order == ["a:start", "a:end", "b:start", "b:end"]
+
+
+async def test_finish_turn_end_forces_stop() -> None:
+    """finish_turn 钩子返回 "end" → 强制结束，不再跑后续轮次。"""
+    provider = ScriptedLoopProvider(
+        [
+            _tool_turn([ToolUseBlock(id="t1", name="echo", input={"text": "hi"})]),
+            _text_turn("不该跑的轮次"),
+        ]
+    )
+    tool = EchoTool()
+    hooks = Hooks()
+
+    async def force_end(turn: int) -> str | None:
+        return "end"
+
+    hooks.on_finish_turn(force_end)
+
+    events, end = await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [tool],
+            [Message(role="user", content=[TextBlock("q")])], on_event, hooks=hooks,
+        )
+    )
+    assert end.stop_reason == "finish_turn_end"
+    assert [e.type for e in events].count("turn_start") == 1
+    assert tool.calls != []  # 第一轮工具确实执行了，end 是之后生效
+
+
+async def test_finish_turn_continue_extends_loop() -> None:
+    """finish_turn 钩子返回 "continue" → 即使下一轮 end_turn，也强制再跑一轮。"""
+    provider = ScriptedLoopProvider(
+        [
+            _tool_turn([ToolUseBlock(id="t1", name="echo", input={"text": "hi"})]),
+            _text_turn("第二轮"),
+            _text_turn("continue 后的第三轮"),
+        ]
+    )
+    tool = EchoTool()
+    hooks = Hooks()
+
+    async def force_continue(turn: int) -> str | None:
+        return "continue" if turn == 1 else None
+
+    hooks.on_finish_turn(force_continue)
+
+    events, end = await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [tool],
+            [Message(role="user", content=[TextBlock("q")])], on_event, hooks=hooks,
+        )
+    )
+    assert [e.type for e in events].count("turn_start") == 3
+    assert end.stop_reason == "end_turn"
+
+
+class FollowUpProvider(ScriptedLoopProvider):
+    """在第 after_turn 轮 stream 时往队列放 follow-up，模拟 run 中途/结束时到达的消息。"""
+
+    def __init__(self, turns, queue, followup_text, after_turn):
+        super().__init__(turns)
+        self.queue = queue
+        self.followup_text = followup_text
+        self.after_turn = after_turn
+        self.stream_count = 0
+
+    async def stream(self, messages, model_id, *, system=None, effort="high", tools=None):
+        self.stream_count += 1
+        self.contexts.append([m for m in messages])
+        if self.stream_count == self.after_turn:
+            self.queue.put_nowait(self.followup_text)
+        for ev in self._turns.pop(0):
+            yield ev
+
+
+async def test_follow_up_continues_loop_after_end_turn() -> None:
+    """run 本应结束（end_turn）后，loop 自己 drain follow-up 并续跑一轮。"""
+    queue: asyncio.Queue[str] = asyncio.Queue()
+    provider = FollowUpProvider(
+        [
+            _tool_turn([ToolUseBlock(id="t1", name="echo", input={"text": "hi"})]),
+            _text_turn("第一段"),
+            _text_turn("回复 follow-up"),
+        ],
+        queue,
+        "follow-up 问题",
+        after_turn=2,  # 第 2 轮（end_turn）stream 时到达，成为 follow-up 而非 steer
+    )
+    tool = EchoTool()
+
+    events, end = await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [tool],
+            [Message(role="user", content=[TextBlock("q")])], on_event,
+            steer_queue=queue,
+        )
+    )
+    # follow-up 触发第 3 轮，且第 3 轮的上下文里包含 follow-up 消息
+    assert [e.type for e in events].count("turn_start") == 3
+    assert any("follow-up 问题" in m.text() for m in provider.contexts[2])
+    assert end.stop_reason == "end_turn"
+
+
+async def test_one_at_a_time_drains_single_steer_per_turn() -> None:
+    """one-at-a-time 排空（默认）：工具后每轮只注入一条 steer，剩余留到下一轮。"""
+    provider = ScriptedLoopProvider(
+        [
+            _tool_turn([ToolUseBlock(id="t1", name="echo", input={"text": "1"})]),
+            _tool_turn([ToolUseBlock(id="t2", name="echo", input={"text": "2"})]),
+            _text_turn("done"),
+        ]
+    )
+    queue: asyncio.Queue[str] = asyncio.Queue()
+    queue.put_nowait("steer-a")
+    queue.put_nowait("steer-b")
+
+    await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [EchoTool()],
+            [Message(role="user", content=[TextBlock("q")])], on_event,
+            steer_queue=queue,
+        )
+    )
+
+    # 第 2 轮上下文只含 steer-a（one-at-a-time），第 3 轮才含 steer-b
+    second_texts = [m.text() for m in provider.contexts[1] if m.role == "user"]
+    third_texts = [m.text() for m in provider.contexts[2] if m.role == "user"]
+    assert second_texts == ["q", "steer-a"]
+    assert third_texts == ["q", "steer-a", "steer-b"]
+
+
+async def test_all_mode_drains_all_steer_at_once() -> None:
+    """all 排空模式：工具后一次性注入全部 steer。"""
+    provider = ScriptedLoopProvider(
+        [
+            _tool_turn([ToolUseBlock(id="t1", name="echo", input={"text": "1"})]),
+            _tool_turn([ToolUseBlock(id="t2", name="echo", input={"text": "2"})]),
+            _text_turn("done"),
+        ]
+    )
+    queue: asyncio.Queue[str] = asyncio.Queue()
+    queue.put_nowait("steer-a")
+    queue.put_nowait("steer-b")
+
+    await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [EchoTool()],
+            [Message(role="user", content=[TextBlock("q")])], on_event,
+            steer_queue=queue, queue_mode="all",
+        )
+    )
+
+    # all 模式：第 2 轮上下文一次性含两条 steer
+    second_texts = [m.text() for m in provider.contexts[1] if m.role == "user"]
+    assert second_texts == ["q", "steer-a", "steer-b"]
+
+
+async def test_truncated_response_fails_tool_calls_without_executing() -> None:
+    """stop_reason 为 max_tokens（截断）时，该消息的工具调用全部标失败、不执行。"""
+    provider = ScriptedLoopProvider(
+        [
+            _turn(
+                [TextDelta("截断的输出")],
+                "max_tokens",
+                Usage(input_tokens=5, output_tokens=4),
+                [TextBlock("截断的输出"), ToolUseBlock(id="t1", name="echo", input={"text": "hi"})],
+            ),
+            _text_turn("重发后的回复"),
+        ]
+    )
+    tool = EchoTool()
+
+    events, end = await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [tool],
+            [Message(role="user", content=[TextBlock("q")])], on_event,
+        )
+    )
+    # 截断的工具调用不执行，收到失败结果，模型重发后正常结束
+    assert tool.calls == []
+    tool_end = next(e for e in events if isinstance(e, ToolExecutionEnd))
+    assert tool_end.result.is_error is True
+    assert end.stop_reason == "end_turn"
+
+
+async def test_terminate_all_blocked_batch_stops_loop() -> None:
+    """整批所有工具都被拒且都设 terminate → 批次终止，不再跑下一轮。"""
+    provider = ScriptedLoopProvider(
+        [
+            _tool_turn(
+                [
+                    ToolUseBlock(id="t1", name="echo", input={"text": "a"}),
+                    ToolUseBlock(id="t2", name="echo", input={"text": "b"}),
+                ]
+            ),
+            _text_turn("不该跑的轮次"),
+        ]
+    )
+    tool = EchoTool()
+    hooks = Hooks()
+
+    async def block_terminate(name, params, call_id):
+        return ToolCallBlock(reason="全拒", terminate=True)
+
+    hooks.on_before_tool_call(block_terminate)
+
+    events, end = await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [tool],
+            [Message(role="user", content=[TextBlock("q")])], on_event, hooks=hooks,
+        )
+    )
+    assert tool.calls == []
+    assert [e.type for e in events].count("turn_start") == 1
+    assert end.stop_reason == "end_turn"
+
+
+async def test_single_terminate_does_not_stop_batch() -> None:
+    """只有一个工具 terminate（非全票）→ 批次继续，跑下一轮。"""
+    provider = ScriptedLoopProvider(
+        [
+            _tool_turn(
+                [
+                    ToolUseBlock(id="t1", name="echo", input={"text": "a"}),
+                    ToolUseBlock(id="t2", name="echo", input={"text": "b"}),
+                ]
+            ),
+            _text_turn("继续"),
+        ]
+    )
+    tool = EchoTool()
+    hooks = Hooks()
+
+    async def block_one(name, params, call_id):
+        if params.get("text") == "a":
+            return ToolCallBlock(reason="拒 a", terminate=True)
+        return None
+
+    hooks.on_before_tool_call(block_one)
+
+    events, end = await _collect(
+        lambda on_event: agent_loop(
+            provider, "claude-opus-5", [tool],
+            [Message(role="user", content=[TextBlock("q")])], on_event, hooks=hooks,
+        )
+    )
+    # a 被拒（terminate），b 执行；非全票 → 不终止，继续第二轮
+    assert any(c[1].get("text") == "b" for c in tool.calls)
+    assert [e.type for e in events].count("turn_start") == 2
+    assert end.stop_reason == "end_turn"

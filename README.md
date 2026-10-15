@@ -11,7 +11,7 @@
 - **内置工具 10 个**：read / write / edit / grep / find / ls / fetch / bash / web_search / memory，文件类工具约束在每用户 Workspace 内（路径归一化 + 越界拒绝，含 symlink 逃逸）
 - **Tool Approval**（ADR-0001）：bash 等非白名单工具执行前向前端推送审批弹窗；白名单存 settings.json
 - **长期记忆**（ADR-0003）：文件式 MEMORY.md 索引 + 单事实文件，索引常驻系统提示，agent 经 memory 工具自主维护；工作区级 AGENTS.md 注入
-- **扩展系统**：`extensions/` 放 Python 插件即可注册工具/命令、订阅 7 个事件钩子；坏插件隔离（示例见 `backend/examples/extensions/`）
+- **扩展系统**：`extensions/` 放 Python 插件即可注册工具/命令、订阅 10 个事件钩子；坏插件隔离（示例见 `backend/examples/extensions/`）
 - **MCP**：`mcp.json` 配 stdio 服务器，工具以 `mcp__<server>__<tool>` 注册，走同一审批管道
 - **模型选择**：会话级模型与 thinking level 切换（对下一 run 生效）；per-user token 用量统计
 - **生产打磨**：全局并发上限（排队）、429/5xx 指数退避重试、结构化日志、错误以 error 事件对前端可见
